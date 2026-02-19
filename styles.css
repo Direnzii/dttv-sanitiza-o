@@ -1,0 +1,47 @@
+:root {
+  color-scheme: light;
+}
+
+/* Mantém botões de navegação consistentes (Tailwind via classes no JS não é necessário). */
+.nav-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 0.9rem;
+  border: 1px solid transparent;
+  color: rgb(51 65 85); /* slate-700 */
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.15rem;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+.nav-btn:hover {
+  background: rgb(248 250 252); /* slate-50 */
+  border-color: rgb(226 232 240); /* slate-200 */
+}
+.nav-btn[aria-current="page"] {
+  background: rgb(15 23 42); /* slate-900 */
+  color: white;
+}
+.nav-btn[aria-current="page"] svg {
+  color: white;
+}
+
+.nav-btn--compact {
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.5rem 0.35rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+/* Pequenas melhorias de legibilidade */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Evita "jump" em input type=date em alguns browsers */
+input[type="date"] {
+  min-height: 40px;
+}

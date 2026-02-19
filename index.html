@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="pt-BR" class="h-full">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0f172a" />
+    <meta name="description" content="Gerenciador de Agenda e Serviços (PWA) — Clientes, Serviços, Orçamentos e Dashboard offline." />
+
+    <link rel="manifest" href="./manifest.json" />
+    <link rel="icon" href="./assets/icons/icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="./assets/icons/icon-192.svg" />
+    <link rel="stylesheet" href="./styles.css" />
+
+    <!-- Tailwind via CDN (agilidade) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      // Config leve para manter a UI consistente sem build step.
+      tailwind.config = {
+        theme: {
+          extend: {
+            boxShadow: {
+              soft: "0 10px 25px rgba(2,6,23,0.08)",
+            },
+          },
+        },
+      };
+    </script>
+
+    <!-- Ícones (Lucide) -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <!-- PDF (jsPDF UMD) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+    <title>DTTZ — Agenda & Serviços</title>
+  </head>
+  <body class="h-full bg-slate-50 text-slate-900 antialiased">
+    <div id="app" class="min-h-full">
+      <!-- Header -->
+      <header class="sticky top-0 z-30 border-b border-slate-200/80 bg-white/80 backdrop-blur">
+        <div class="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
+          <div class="flex items-center gap-3">
+            <div class="grid h-10 w-10 place-items-center rounded-xl bg-slate-900 text-white shadow-soft">
+              <span class="text-sm font-semibold tracking-tight">D</span>
+            </div>
+            <div>
+              <div class="text-sm font-semibold leading-5">DTTZ</div>
+              <div class="text-xs text-slate-500">Agenda & Serviços</div>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <button
+              id="btn-install"
+              class="hidden items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+              type="button"
+              title="Instalar app"
+            >
+              <i data-lucide="download" class="h-4 w-4"></i>
+              Instalar
+            </button>
+            <button
+              id="btn-quick-backup"
+              class="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white shadow-soft hover:bg-slate-800"
+              type="button"
+              title="Exportar backup"
+            >
+              <i data-lucide="shield" class="h-4 w-4"></i>
+              Backup
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- Layout -->
+      <div class="mx-auto grid max-w-6xl grid-cols-1 gap-4 px-4 py-4 md:grid-cols-[240px_1fr] md:py-6">
+        <!-- Sidebar (desktop) -->
+        <aside class="hidden md:block">
+          <nav class="sticky top-20 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
+            <div class="px-3 pb-2 pt-3 text-xs font-semibold uppercase tracking-wider text-slate-500">Navegação</div>
+            <div class="space-y-1">
+              <button class="nav-btn w-full" data-route="home" type="button">
+                <i data-lucide="layout-dashboard" class="h-4 w-4"></i>
+                Dashboard
+              </button>
+              <button class="nav-btn w-full" data-route="records" type="button">
+                <i data-lucide="calendar-days" class="h-4 w-4"></i>
+                Agenda
+              </button>
+              <button class="nav-btn w-full" data-route="clients" type="button">
+                <i data-lucide="users" class="h-4 w-4"></i>
+                Clientes
+              </button>
+              <button class="nav-btn w-full" data-route="services" type="button">
+                <i data-lucide="briefcase" class="h-4 w-4"></i>
+                Serviços
+              </button>
+              <button class="nav-btn w-full" data-route="budgets" type="button">
+                <i data-lucide="file-text" class="h-4 w-4"></i>
+                Orçamentos & PDF
+              </button>
+              <button class="nav-btn w-full" data-route="backup" type="button">
+                <i data-lucide="database-backup" class="h-4 w-4"></i>
+                Backup (JSON)
+              </button>
+            </div>
+          </nav>
+        </aside>
+
+        <!-- Main -->
+        <main class="space-y-4">
+          <div id="view" class="min-h-[60vh]"></div>
+
+          <footer class="pb-20 md:pb-0">
+            <div class="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-500 shadow-sm">
+              Offline-first (PWA) • Dados em <span class="font-medium text-slate-700">localStorage</span> • Sem backend
+            </div>
+          </footer>
+        </main>
+      </div>
+
+      <!-- Bottom Nav (mobile) -->
+      <nav class="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/90 backdrop-blur md:hidden">
+        <div class="mx-auto grid max-w-6xl grid-cols-5 gap-1 px-2 py-2">
+          <button class="nav-btn nav-btn--compact" data-route="home" type="button" title="Dashboard">
+            <i data-lucide="layout-dashboard" class="h-5 w-5"></i>
+            <span>Home</span>
+          </button>
+          <button class="nav-btn nav-btn--compact" data-route="records" type="button" title="Agenda">
+            <i data-lucide="calendar-days" class="h-5 w-5"></i>
+            <span>Agenda</span>
+          </button>
+          <button class="nav-btn nav-btn--compact" data-route="clients" type="button" title="Clientes">
+            <i data-lucide="users" class="h-5 w-5"></i>
+            <span>Clientes</span>
+          </button>
+          <button class="nav-btn nav-btn--compact" data-route="services" type="button" title="Serviços">
+            <i data-lucide="briefcase" class="h-5 w-5"></i>
+            <span>Serviços</span>
+          </button>
+          <button class="nav-btn nav-btn--compact" data-route="budgets" type="button" title="Orçamentos">
+            <i data-lucide="file-text" class="h-5 w-5"></i>
+            <span>PDF</span>
+          </button>
+        </div>
+      </nav>
+
+      <!-- UI roots -->
+      <div id="toasts" class="pointer-events-none fixed right-3 top-16 z-50 space-y-2 md:top-20"></div>
+      <div id="modal-root"></div>
+    </div>
+
+    <script type="module" src="./src/app.js"></script>
+  </body>
+</html>
