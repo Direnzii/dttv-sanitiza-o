@@ -49,6 +49,11 @@ export function renderServices(container) {
       "w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/20"
   });
 
+  const applyFilters = () => {
+    state.q = search.value;
+    renderList();
+  };
+
   function openCreate() {
     const form = serviceForm({
       initial: {},
@@ -139,13 +144,14 @@ export function renderServices(container) {
           )
         })
       );
+      globalThis.lucide?.createIcons?.();
       return;
     }
 
     listHost.appendChild(
       card([
-        el("div", { class: "overflow-hidden rounded-xl border border-slate-200" }, [
-          el("table", { class: "w-full text-left text-sm" }, [
+        el("div", { class: "overflow-x-auto rounded-xl border border-slate-200" }, [
+          el("table", { class: "min-w-[720px] w-full text-left text-sm" }, [
             el("thead", { class: "bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" }, [
               el("tr", {}, [
                 el("th", { class: "px-3 py-2" }, "Nome"),
@@ -191,10 +197,23 @@ export function renderServices(container) {
         ])
       ])
     );
+
+    // Recria ícones após re-render por busca/filtros.
+    globalThis.lucide?.createIcons?.();
   }
 
   const right = el("div", { class: "flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center" }, [
     el("div", { class: "w-full sm:w-72" }, [search]),
+    el(
+      "button",
+      {
+        type: "button",
+        class:
+          "inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100",
+        onclick: applyFilters
+      },
+      [el("i", { dataset: { lucide: "filter" }, class: "h-4 w-4" }), "Filtrar"]
+    ),
     el(
       "button",
       {
@@ -209,14 +228,16 @@ export function renderServices(container) {
 
   container.appendChild(
     el("div", { class: "space-y-4" }, [
-      pageHeader({ title: "Serviços", subtitle: "CRUD completo de serviços (com custo total).", right }),
+      pageHeader({ title: "Serviços", right }),
       listHost
     ])
   );
 
-  search.addEventListener("input", () => {
-    state.q = search.value;
-    renderList();
+  search.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      applyFilters();
+    }
   });
 
   renderList();

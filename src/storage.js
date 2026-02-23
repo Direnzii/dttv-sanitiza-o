@@ -1,4 +1,5 @@
-const STORAGE_KEY = "dttz_agenda_servicos_v1";
+const STORAGE_KEY = "dttv_agenda_servicos_v1";
+const STORAGE_KEY_OLD = "dt" + "tz_agenda_servicos_v1";
 
 export function getStorageKey() {
   return STORAGE_KEY;
@@ -6,7 +7,15 @@ export function getStorageKey() {
 
 export function loadRaw() {
   try {
-    return localStorage.getItem(STORAGE_KEY);
+    const cur = localStorage.getItem(STORAGE_KEY);
+    if (cur) return cur;
+
+    // Migração: lê chave antiga e move para a nova.
+    const old = localStorage.getItem(STORAGE_KEY_OLD);
+    if (!old) return null;
+    localStorage.setItem(STORAGE_KEY, old);
+    localStorage.removeItem(STORAGE_KEY_OLD);
+    return old;
   } catch {
     return null;
   }
@@ -32,4 +41,5 @@ export function saveJSON(value) {
 
 export function clearAll() {
   localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem(STORAGE_KEY_OLD);
 }

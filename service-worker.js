@@ -1,7 +1,7 @@
 /* Basic offline-first Service Worker (App Shell + runtime cache).
    Observação: CDNs (Tailwind/jsPDF/Lucide) são cacheados em runtime após o primeiro acesso. */
 
-const CACHE_VERSION = "dttz-agenda-v1-2026-02-19";
+const CACHE_VERSION = "dttv-agenda-v1-2026-02-19";
 const CACHE_APP = `${CACHE_VERSION}:app`;
 const CACHE_RUNTIME = `${CACHE_VERSION}:runtime`;
 
@@ -18,7 +18,11 @@ const APP_SHELL = [
   "./src/storage.js",
   "./src/state.js",
   "./src/utils.js",
+  "./src/alerts.js",
+  "./src/notifications.js",
+  "./src/backupManager.js",
   "./src/ui/components.js",
+  "./src/ui/recordUi.js",
   "./src/ui/modal.js",
   "./src/ui/router.js",
   "./src/ui/toast.js",
@@ -26,6 +30,7 @@ const APP_SHELL = [
   "./src/views/budgets.js",
   "./src/views/clients.js",
   "./src/views/home.js",
+  "./src/views/notifications.js",
   "./src/views/records.js",
   "./src/views/services.js"
 ];
@@ -42,9 +47,14 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches.keys().then(async (keys) => {
+      const OLD_PREFIX = "dt" + "tz-agenda-v1-";
+      const NEW_PREFIX = "dttv-agenda-v1-";
       await Promise.all(
         keys
-          .filter((k) => k.startsWith("dttz-agenda-v1-") && !k.startsWith(CACHE_VERSION))
+          .filter((k) => {
+            const isAppCache = k.startsWith(NEW_PREFIX) || k.startsWith(OLD_PREFIX);
+            return isAppCache && !k.startsWith(CACHE_VERSION);
+          })
           .map((k) => caches.delete(k))
       );
       await self.clients.claim();

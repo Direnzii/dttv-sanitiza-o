@@ -2,6 +2,7 @@ import { listRecords } from "../db.js";
 import { addDaysISO, formatCurrencyBRL, formatDateBR, todayISO, toNumber } from "../utils.js";
 import { card, clear, el, pageHeader } from "../ui/components.js";
 import { navigate } from "../ui/router.js";
+import { formatDateTime, statusCell } from "../ui/recordUi.js";
 
 function computeRange({ mode, from, to }) {
   const end = String(to || todayISO()).slice(0, 10);
@@ -15,7 +16,9 @@ function computeRange({ mode, from, to }) {
 }
 
 function sumTotals(records) {
-  return records.reduce((acc, r) => acc + toNumber(r.total, 0), 0);
+  return records
+    .filter((r) => String(r?.status || "").toUpperCase() === "FEITO")
+    .reduce((acc, r) => acc + toNumber(r.total, 0), 0);
 }
 
 export function renderHome(container) {
@@ -97,7 +100,7 @@ export function renderHome(container) {
       card([
         el("div", { class: "flex flex-wrap items-center justify-between gap-3" }, [
           el("div", {}, [
-            el("div", { class: "text-base font-semibold text-slate-900" }, "Serviços recentes"),
+            el("div", { class: "text-base font-semibold text-slate-900" }, "Serviços"),
             el("div", { class: "mt-0.5 text-sm text-slate-500" }, "Registros de agenda no período selecionado.")
           ]),
           el(
@@ -122,19 +125,21 @@ export function renderHome(container) {
                     el("th", { class: "px-3 py-2" }, "Data"),
                     el("th", { class: "px-3 py-2" }, "Cliente"),
                     el("th", { class: "px-3 py-2" }, "Serviços"),
+                    el("th", { class: "px-3 py-2" }, "Status"),
                     el("th", { class: "px-3 py-2 text-right" }, "Total")
                   ])
                 ]),
                 el("tbody", { class: "divide-y divide-slate-200 bg-white" }, [
                   ...recent.map((r) =>
                     el("tr", { class: "hover:bg-slate-50" }, [
-                      el("td", { class: "px-3 py-2 text-slate-700" }, formatDateBR(r.dateISO)),
+                      el("td", { class: "px-3 py-2 text-slate-700" }, formatDateTime(r)),
                       el("td", { class: "px-3 py-2 font-semibold text-slate-900" }, r.clientName || "—"),
                       el(
                         "td",
                         { class: "px-3 py-2 text-slate-700" },
                         Array.isArray(r.items) ? r.items.map((it) => it.name).join(", ") : "—"
                       ),
+                      el("td", { class: "px-3 py-2 align-top" }, statusCell(r)),
                       el("td", { class: "px-3 py-2 text-right font-semibold text-slate-900" }, formatCurrencyBRL(r.total))
                     ])
                   )
@@ -143,30 +148,46 @@ export function renderHome(container) {
             ])
       ])
     );
+
+    // Recria ícones após re-render por período/data.
+    globalThis.lucide?.createIcons?.();
   }
+
+  const customRangeBox = el("div", { class: "grid grid-cols-2 gap-2" }, [
+    el("div", { class: "space-y-1" }, [
+      el("div", { class: "text-xs font-semibold uppercase tracking-wider text-slate-500" }, "De"),
+      inputFrom
+    ]),
+    el("div", { class: "space-y-1" }, [
+      el("div", { class: "text-xs font-semibold uppercase tracking-wider text-slate-500" }, "Até"),
+      inputTo
+    ])
+  ]);
+
+  const applyBtn = el(
+    "button",
+    {
+      type: "button",
+      class:
+        "inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100",
+      onclick: () => renderAll()
+    },
+    [el("i", { dataset: { lucide: "filter" }, class: "h-4 w-4" }), "Filtrar"]
+  );
 
   const right = el("div", { class: "flex flex-wrap items-end gap-2" }, [
     el("div", { class: "space-y-1" }, [
       el("div", { class: "text-xs font-semibold uppercase tracking-wider text-slate-500" }, "Período"),
       select
     ]),
-    el("div", { class: "grid grid-cols-2 gap-2" }, [
-      el("div", { class: "space-y-1" }, [
-        el("div", { class: "text-xs font-semibold uppercase tracking-wider text-slate-500" }, "De"),
-        inputFrom
-      ]),
-      el("div", { class: "space-y-1" }, [
-        el("div", { class: "text-xs font-semibold uppercase tracking-wider text-slate-500" }, "Até"),
-        inputTo
-      ])
-    ])
+    customRangeBox,
+    applyBtn
   ]);
 
   container.appendChild(
     el("div", { class: "space-y-4" }, [
       pageHeader({
         title: "Dashboard",
-        subtitle: "Resumo rápido do que aconteceu no período selecionado.",
         right
       }),
       summaryHost,
@@ -176,8 +197,21 @@ export function renderHome(container) {
 
   function syncCustomVisibility() {
     const custom = state.mode === "custom";
-    inputFrom.disabled = !custom;
-    inputFrom.parentElement?.classList.toggle("opacity-50", !custom);
+    customRangeBox.classList.toggle("hidden", !custom);
+    applyBtn.classList.toggle("hidden", !custom);
+
+    if (!custom) {
+      // em períodos fixos, "até" não aparece e usamos hoje automaticamente
+      state.from = "";
+      state.to = todayISO();
+      inputFrom.value = "";
+      inputTo.value = state.to;
+    } else {
+      // garante valores coerentes ao entrar no personalizado
+      if (!state.to) state.to = todayISO();
+      inputTo.value = state.to;
+      inputFrom.value = state.from || "";
+    }
   }
 
   select.value = state.mode;
@@ -190,11 +224,9 @@ export function renderHome(container) {
   });
   inputFrom.addEventListener("change", () => {
     state.from = inputFrom.value;
-    renderAll();
   });
   inputTo.addEventListener("change", () => {
     state.to = inputTo.value;
-    renderAll();
   });
 
   renderAll();

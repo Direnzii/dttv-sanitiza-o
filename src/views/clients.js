@@ -3,6 +3,8 @@ import { EVENTS, emit } from "../state.js";
 import { card, clear, el, emptyState, input, pageHeader } from "../ui/components.js";
 import { confirmDialog, openModal } from "../ui/modal.js";
 import { showToast } from "../ui/toast.js";
+import { computeClientDue, resetClientPeriodStartToday } from "../alerts.js";
+import { formatDateBR, todayISO } from "../utils.js";
 
 function clientForm({ initial = {}, onSave }) {
   const form = el("form", { class: "space-y-3" });
@@ -11,6 +13,95 @@ function clientForm({ initial = {}, onSave }) {
   form.appendChild(input({ label: "E-mail", name: "email", value: initial.email || "", placeholder: "email@exemplo.com", type: "email" }));
   form.appendChild(input({ label: "Localização", name: "location", value: initial.location || "", placeholder: "Cidade / Bairro / Endereço" }));
 
+  // Periodicidade recomendada
+  const pvWrap = input({
+    label: "Periodicidade recomendada",
+    name: "periodValue",
+    value: initial.periodValue > 0 ? String(initial.periodValue) : "",
+    placeholder: "Ex.: 2",
+    type: "number",
+    required: false
+  });
+  const pvInput = pvWrap.querySelector("input");
+  pvInput.min = "0";
+  pvInput.step = "1";
+
+  const unitId = `f_periodUnit_${Math.random().toString(36).slice(2, 7)}`;
+  const unitSelect = el(
+    "select",
+    {
+      id: unitId,
+      name: "periodUnit",
+      class:
+        "w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/20"
+    },
+    [el("option", { value: "months" }, "Meses"), el("option", { value: "days" }, "Dias")]
+  );
+  unitSelect.value = initial.periodUnit === "days" ? "days" : "months";
+
+  const helper = el("div", { class: "text-xs text-slate-500" }, "");
+
+  const resetBtn = el(
+    "button",
+    {
+      type: "button",
+      class:
+        "inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100",
+      onclick: () => {
+        if (!initial?.id) {
+          showToast("Salve o cliente antes de reiniciar a contagem.", { type: "info" });
+          return;
+        }
+        try {
+          resetClientPeriodStartToday(initial.id);
+          emit(EVENTS.DATA_CHANGED);
+          showToast("Contagem reiniciada a partir de hoje.", { type: "success" });
+        } catch (err) {
+          showToast(err?.message || "Falha ao reiniciar contagem.", { type: "error" });
+        }
+      }
+    },
+    [el("i", { dataset: { lucide: "rotate-ccw" }, class: "h-4 w-4" }), "Reiniciar contagem hoje"]
+  );
+
+  function syncHelper() {
+    const pv = Number(pvInput.value || 0);
+    const unit = unitSelect.value;
+    if (!pv || pv <= 0) {
+      helper.textContent = "Deixe vazio/0 para não receber alertas automáticos para este cliente.";
+      return;
+    }
+    const due = computeClientDue(
+      {
+        periodValue: pv,
+        periodUnit: unit,
+        periodStartISO: initial.periodStartISO || todayISO()
+      },
+      todayISO()
+    );
+    helper.textContent = `A contagem começa em ${formatDateBR(due.startISO)}. Próximo vencimento em ${formatDateBR(due.dueISO)}.`;
+  }
+
+  pvInput.addEventListener("input", syncHelper);
+  unitSelect.addEventListener("change", syncHelper);
+  syncHelper();
+
+  form.appendChild(
+    el("div", { class: "grid grid-cols-1 gap-3 sm:grid-cols-2" }, [
+      pvWrap,
+      el("div", { class: "space-y-1" }, [
+        el("label", { for: unitId, class: "text-xs font-semibold uppercase tracking-wider text-slate-500" }, "Unidade"),
+        unitSelect
+      ])
+    ])
+  );
+  form.appendChild(helper);
+  if (initial?.id) form.appendChild(el("div", { class: "pt-1" }, resetBtn));
+
+  // Fallback para browsers sem `requestSubmit()`: um submit hidden.
+  const hiddenSubmit = el("button", { type: "submit", class: "hidden", dataset: { hiddenSubmit: "1" } }, "submit");
+  form.appendChild(hiddenSubmit);
+
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const fd = new FormData(form);
@@ -18,7 +109,9 @@ function clientForm({ initial = {}, onSave }) {
       name: String(fd.get("name") || "").trim(),
       contact: String(fd.get("contact") || "").trim(),
       email: String(fd.get("email") || "").trim(),
-      location: String(fd.get("location") || "").trim()
+      location: String(fd.get("location") || "").trim(),
+      periodValue: String(fd.get("periodValue") || "").trim(),
+      periodUnit: String(fd.get("periodUnit") || "months")
     };
     try {
       await onSave(payload);
@@ -42,6 +135,11 @@ export function renderClients(container) {
       "w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/20"
   });
 
+  const applyFilters = () => {
+    state.q = search.value;
+    renderList();
+  };
+
   function openCreate() {
     const form = clientForm({
       initial: {},
@@ -52,6 +150,16 @@ export function renderClients(container) {
         modal.close();
       }
     });
+
+    function submitSafely() {
+      if (!form.checkValidity()) {
+        form.reportValidity();
+        showToast("Verifique os campos obrigatórios antes de salvar.", { type: "warning" });
+        return;
+      }
+      if (typeof form.requestSubmit === "function") form.requestSubmit();
+      else form.querySelector('button[type="submit"][data-hidden-submit="1"]')?.click();
+    }
 
     const modal = openModal({
       title: "Novo cliente",
@@ -67,7 +175,10 @@ export function renderClients(container) {
         {
           label: "Salvar",
           className: "rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800",
-          onClick: () => form.requestSubmit()
+          onClick: () => {
+            submitSafely();
+            return false; // não fecha o modal automaticamente
+          }
         }
       ]
     });
@@ -84,6 +195,16 @@ export function renderClients(container) {
       }
     });
 
+    function submitSafely() {
+      if (!form.checkValidity()) {
+        form.reportValidity();
+        showToast("Verifique os campos obrigatórios antes de salvar.", { type: "warning" });
+        return;
+      }
+      if (typeof form.requestSubmit === "function") form.requestSubmit();
+      else form.querySelector('button[type="submit"][data-hidden-submit="1"]')?.click();
+    }
+
     const modal = openModal({
       title: "Editar cliente",
       subtitle: "Atualize os dados do cliente.",
@@ -93,7 +214,10 @@ export function renderClients(container) {
         {
           label: "Salvar alterações",
           className: "rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800",
-          onClick: () => form.requestSubmit()
+          onClick: () => {
+            submitSafely();
+            return false; // não fecha o modal automaticamente
+          }
         }
       ]
     });
@@ -137,6 +261,7 @@ export function renderClients(container) {
           )
         })
       );
+      globalThis.lucide?.createIcons?.();
       return;
     }
 
@@ -147,6 +272,7 @@ export function renderClients(container) {
             el("thead", { class: "bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" }, [
               el("tr", {}, [
                 el("th", { class: "px-3 py-2" }, "Nome"),
+                el("th", { class: "px-3 py-2 hidden md:table-cell" }, "Periodicidade"),
                 el("th", { class: "px-3 py-2 hidden md:table-cell" }, "Contato"),
                 el("th", { class: "px-3 py-2 hidden lg:table-cell" }, "E-mail"),
                 el("th", { class: "px-3 py-2 hidden lg:table-cell" }, "Localização"),
@@ -157,6 +283,13 @@ export function renderClients(container) {
               ...items.map((c) =>
                 el("tr", { class: "hover:bg-slate-50" }, [
                   el("td", { class: "px-3 py-2 font-semibold text-slate-900" }, c.name),
+                  el("td", { class: "px-3 py-2 hidden md:table-cell text-slate-700" }, (() => {
+                    const due = computeClientDue(c, todayISO());
+                    if (!due.enabled) return "—";
+                    const label = due.unit === "days" ? "dias" : "meses";
+                    const status = due.isOverdue ? " • VENCIDO" : "";
+                    return `${due.value} ${label}${status}`;
+                  })()),
                   el("td", { class: "px-3 py-2 hidden md:table-cell text-slate-700" }, c.contact || "—"),
                   el("td", { class: "px-3 py-2 hidden lg:table-cell text-slate-700" }, c.email || "—"),
                   el("td", { class: "px-3 py-2 hidden lg:table-cell text-slate-700" }, c.location || "—"),
@@ -191,10 +324,23 @@ export function renderClients(container) {
         ])
       ])
     );
+
+    // Recria ícones após re-render por busca/filtros.
+    globalThis.lucide?.createIcons?.();
   }
 
   const right = el("div", { class: "flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center" }, [
     el("div", { class: "w-full sm:w-72" }, [search]),
+    el(
+      "button",
+      {
+        type: "button",
+        class:
+          "inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100",
+        onclick: applyFilters
+      },
+      [el("i", { dataset: { lucide: "filter" }, class: "h-4 w-4" }), "Filtrar"]
+    ),
     el(
       "button",
       {
@@ -209,14 +355,16 @@ export function renderClients(container) {
 
   container.appendChild(
     el("div", { class: "space-y-4" }, [
-      pageHeader({ title: "Clientes", subtitle: "CRUD completo de clientes (nome obrigatório).", right }),
+      pageHeader({ title: "Clientes", right }),
       listHost
     ])
   );
 
-  search.addEventListener("input", () => {
-    state.q = search.value;
-    renderList();
+  search.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      applyFilters();
+    }
   });
 
   renderList();

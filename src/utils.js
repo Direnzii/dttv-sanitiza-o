@@ -4,8 +4,27 @@ export function uid() {
   return `id_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function localDateISO(d) {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function parseISODateLocal(dateISO) {
+  const s = String(dateISO ?? "").slice(0, 10);
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  if (!Number.isInteger(y) || !Number.isInteger(mo) || !Number.isInteger(d)) return null;
+  return new Date(y, mo - 1, d); // local time (00:00 local)
+}
+
 export function todayISO() {
-  return new Date().toISOString().slice(0, 10);
+  // Importante: data local (evita bug de -1 dia por UTC).
+  return localDateISO(new Date());
 }
 
 export function nowISO() {
@@ -24,7 +43,8 @@ export function formatCurrencyBRL(value) {
 
 export function formatDateBR(dateISO) {
   // Aceita "YYYY-MM-DD" ou ISO completo.
-  const d = new Date(dateISO);
+  const local = parseISODateLocal(dateISO);
+  const d = local || new Date(dateISO);
   if (Number.isNaN(d.getTime())) return String(dateISO ?? "");
   return d.toLocaleDateString("pt-BR");
 }
@@ -58,25 +78,25 @@ export function readFileAsText(file) {
   });
 }
 
-export function escapeHtml(s) {
-  return String(s ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
-}
-
-export function inRangeInclusive(dateISO, startISO, endISO) {
-  // Considera apenas parte YYYY-MM-DD.
-  const d = String(dateISO ?? "").slice(0, 10);
-  const a = String(startISO ?? "").slice(0, 10);
-  const b = String(endISO ?? "").slice(0, 10);
-  return d >= a && d <= b;
-}
-
 export function addDaysISO(dateISO, days) {
-  const d = new Date(String(dateISO).slice(0, 10));
+  const base = parseISODateLocal(dateISO) || new Date(String(dateISO).slice(0, 10));
+  const d = new Date(base.getFullYear(), base.getMonth(), base.getDate());
   d.setDate(d.getDate() + Number(days || 0));
-  return d.toISOString().slice(0, 10);
+  return localDateISO(d);
+}
+
+export function addMonthsISO(dateISO, months) {
+  const base = parseISODateLocal(dateISO) || new Date(String(dateISO).slice(0, 10));
+  if (Number.isNaN(base.getTime())) return todayISO();
+
+  const m = Math.trunc(Number(months || 0));
+  const y = base.getFullYear();
+  const mo = base.getMonth();
+  const day = base.getDate();
+
+  // vai para o dia 1 para evitar "pulos" em meses curtos, depois corrige o dia
+  const target = new Date(y, mo + m, 1);
+  const lastDay = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+  target.setDate(Math.min(day, lastDay));
+  return localDateISO(target);
 }

@@ -1,5 +1,6 @@
-import { exportBackup, getMeta, hardResetDb, importBackup } from "../db.js";
+import { getMeta, hardResetDb } from "../db.js";
 import { EVENTS, emit } from "../state.js";
+import { exportFullBackup, importFullBackup } from "../backupManager.js";
 import { downloadTextFile, readFileAsText } from "../utils.js";
 import { card, el, pageHeader } from "../ui/components.js";
 import { confirmDialog, openModal } from "../ui/modal.js";
@@ -45,9 +46,9 @@ export function renderBackup(container) {
   );
 
   exportBtn.addEventListener("click", () => {
-    const backup = exportBackup();
+    const backup = exportFullBackup();
     downloadTextFile({
-      filename: `dttz-backup-${String(backup.exportedAt).slice(0, 10)}.json`,
+      filename: `dttv-backup-${String(backup.exportedAt).slice(0, 10)}.json`,
       mime: "application/json",
       text: JSON.stringify(backup, null, 2)
     });
@@ -61,15 +62,15 @@ export function renderBackup(container) {
     try {
       const text = await readFileAsText(file);
       const json = JSON.parse(text);
-      const summary = importBackup(json);
+      const summary = importFullBackup(json);
       emit(EVENTS.DATA_CHANGED);
 
       openModal({
         title: "Importação concluída",
         subtitle: "Duplicados foram ignorados (ou usados para preencher campos vazios).",
         content: `<pre class="whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">${summaryText(
-          summary
-        )}</pre>`,
+          summary.db
+        )}\n\nNotificações: +${summary.notifications.created} (ignoradas: ${summary.notifications.skipped})\nAnti-spam: +${summary.dueState.created} (atualizados: ${summary.dueState.updated}, ignorados: ${summary.dueState.skipped})</pre>`,
         actions: [
           {
             label: "Ok",
@@ -101,8 +102,7 @@ export function renderBackup(container) {
   container.appendChild(
     el("div", { class: "space-y-4" }, [
       pageHeader({
-        title: "Backup (JSON)",
-        subtitle: "Exporte/importe todo o estado do app (localStorage)."
+        title: "Backup (JSON)"
       }),
       el("div", { class: "grid grid-cols-1 gap-3 md:grid-cols-2" }, [
         card([

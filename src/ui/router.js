@@ -1,6 +1,6 @@
 import { emit, EVENTS } from "../state.js";
 
-const ROUTES = new Set(["home", "clients", "services", "records", "budgets", "backup"]);
+const ROUTES = new Set(["home", "clients", "services", "records", "budgets", "backup", "notifications"]);
 
 export function getRoute() {
   const h = String(location.hash || "").replace(/^#/, "").trim();

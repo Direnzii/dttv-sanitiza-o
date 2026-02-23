@@ -28,6 +28,37 @@ function coerceDb(raw) {
 
 let _db = coerceDb(loadJSON(emptyDb()));
 
+const RECORD_STATUSES = new Set(["APROVADO", "FEITO", "RECUSADO", "CANCELADO"]);
+
+function normalizeRecordStatus(status) {
+  const s = String(status || "").trim().toUpperCase();
+  return RECORD_STATUSES.has(s) ? s : "APROVADO";
+}
+
+function buildBudgetCode({ id, createdAt } = {}) {
+  const dateISO = String(createdAt || "").slice(0, 10); // YYYY-MM-DD
+  const yy = dateISO.slice(2, 4) || "00";
+  const mm = dateISO.slice(5, 7) || "00";
+  const dd = dateISO.slice(8, 10) || "00";
+  const suffix = String(id || "")
+    .replaceAll("-", "")
+    .toUpperCase()
+    .slice(0, 4) || "0000";
+  return `ORC-${yy}${mm}${dd}-${suffix}`;
+}
+
+function normalizeTimeHM(value) {
+  const v = String(value ?? "").trim();
+  if (!v) return "";
+  // Aceita HH:MM
+  if (!/^\d{2}:\d{2}$/.test(v)) return "";
+  const [h, m] = v.split(":").map((x) => Number(x));
+  if (!Number.isInteger(h) || !Number.isInteger(m)) return "";
+  if (h < 0 || h > 23) return "";
+  if (m < 0 || m > 59) return "";
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
 function persist() {
   _db.updatedAt = nowISO();
   saveJSON(_db);
@@ -37,6 +68,34 @@ function clone(value) {
   // Mantém a camada de UI sem risco de mutação acidental.
   if (globalThis.structuredClone) return structuredClone(value);
   return JSON.parse(JSON.stringify(value));
+}
+
+// Migração: adiciona `code` para orçamentos antigos.
+{
+  let changed = false;
+  for (const b of _db.budgets) {
+    if (!b || typeof b !== "object") continue;
+    if (!b.code) {
+      b.code = buildBudgetCode({ id: b.id, createdAt: b.createdAt });
+      changed = true;
+    }
+  }
+  if (changed) {
+    // Persistimos uma vez para não perder os códigos gerados.
+    persist();
+  }
+}
+
+function ensureBudgetCodes() {
+  let changed = false;
+  for (const b of _db.budgets) {
+    if (!b || typeof b !== "object") continue;
+    if (!b.code) {
+      b.code = buildBudgetCode({ id: b.id, createdAt: b.createdAt });
+      changed = true;
+    }
+  }
+  if (changed) persist();
 }
 
 export function getMeta() {
@@ -88,14 +147,27 @@ export function listRecords({ startISO, endISO, q } = {}) {
       return okRange && okQuery;
     })
     .slice()
-    .sort((x, y) => String(y.dateISO).localeCompare(String(x.dateISO)));
+    .sort((x, y) => {
+      const xd = String(x.dateISO || "");
+      const yd = String(y.dateISO || "");
+      const xt = String(x.timeHM || "00:00");
+      const yt = String(y.timeHM || "00:00");
+      return `${yd}T${yt}`.localeCompare(`${xd}T${xt}`);
+    });
   return clone(out);
 }
 
 export function listBudgets({ q } = {}) {
   const query = normalizeText(q);
   const out = _db.budgets
-    .filter((b) => (query ? normalizeText(b.clientName).includes(query) : true))
+    .filter((b) => {
+      if (!query) return true;
+      return (
+        normalizeText(b.clientName).includes(query) ||
+        normalizeText(b.code).includes(query) ||
+        normalizeText(b.id).includes(query)
+      );
+    })
     .slice()
     .sort((x, y) => String(y.createdAt).localeCompare(String(x.createdAt)));
   return clone(out);
@@ -124,12 +196,23 @@ export function createClient(input) {
   if (!name) throw new Error("Nome do cliente é obrigatório.");
 
   const now = nowISO();
+  const periodValueRaw = toNumber(input?.periodValue, 0);
+  const periodValue = periodValueRaw > 0 ? Math.max(1, Math.floor(periodValueRaw)) : 0;
+  const periodUnit = periodValue > 0 ? String(input?.periodUnit || "months") : "";
+  if (periodValue > 0 && periodUnit !== "days" && periodUnit !== "months") {
+    throw new Error("Periodicidade: unidade inválida (dias/meses).");
+  }
+
   const client = {
     id: uid(),
     name,
     contact: String(input?.contact ?? "").trim(),
     email: String(input?.email ?? "").trim(),
     location: String(input?.location ?? "").trim(),
+    // Periodicidade recomendada (para alertas)
+    periodValue,
+    periodUnit,
+    periodStartISO: periodValue > 0 ? todayISO() : "",
     createdAt: now,
     updatedAt: now
   };
@@ -152,6 +235,46 @@ export function updateClient(id, patch) {
   if (patch?.contact !== undefined) next.contact = String(patch.contact ?? "").trim();
   if (patch?.email !== undefined) next.email = String(patch.email ?? "").trim();
   if (patch?.location !== undefined) next.location = String(patch.location ?? "").trim();
+
+  // Periodicidade recomendada
+  const prevPeriodValue = toNumber(next.periodValue, 0);
+  const prevPeriodUnit = String(next.periodUnit || "");
+  const prevStart = String(next.periodStartISO || "").slice(0, 10);
+
+  let periodTouched = false;
+  if (patch?.periodValue !== undefined) {
+    const pvRaw = toNumber(patch.periodValue, 0);
+    next.periodValue = pvRaw > 0 ? Math.max(1, Math.floor(pvRaw)) : 0;
+    periodTouched = true;
+  }
+  if (patch?.periodUnit !== undefined) {
+    next.periodUnit = String(patch.periodUnit || "");
+    periodTouched = true;
+  }
+  if (patch?.periodStartISO !== undefined) {
+    next.periodStartISO = String(patch.periodStartISO || "").slice(0, 10);
+    // startISO isolado não reinicia unidade/valor
+  }
+
+  if (toNumber(next.periodValue, 0) > 0) {
+    if (next.periodUnit !== "days" && next.periodUnit !== "months") {
+      throw new Error("Periodicidade: unidade inválida (dias/meses).");
+    }
+
+    const didChangeValue = prevPeriodValue !== toNumber(next.periodValue, 0);
+    const didChangeUnit = prevPeriodUnit !== String(next.periodUnit || "");
+
+    // "a partir daquele ponto": quando habilita ou altera periodicidade, reinicia hoje
+    const enablingNow = prevPeriodValue <= 0 && toNumber(next.periodValue, 0) > 0;
+    if (enablingNow || (periodTouched && (didChangeValue || didChangeUnit)) || !prevStart) {
+      next.periodStartISO = todayISO();
+    }
+  } else {
+    // desabilita periodicidade
+    next.periodUnit = "";
+    next.periodStartISO = "";
+  }
+
   next.updatedAt = nowISO();
 
   _db.clients[idx] = next;
@@ -237,6 +360,7 @@ function computeTotal(items, discount = 0) {
 
 export function createRecord(input) {
   const dateISO = String(input?.dateISO ?? todayISO()).slice(0, 10);
+  const timeHM = normalizeTimeHM(input?.timeHM);
   const clientId = String(input?.clientId ?? "").trim();
   const client = _db.clients.find((c) => c.id === clientId);
   if (!client) throw new Error("Selecione um cliente válido.");
@@ -244,15 +368,24 @@ export function createRecord(input) {
   const items = buildItemsFromServiceIds(input?.serviceIds);
   if (items.length === 0) throw new Error("Selecione pelo menos 1 serviço.");
 
+  const status = normalizeRecordStatus(input?.status);
+  const statusReason = String(input?.statusReason ?? "");
+  if ((status === "RECUSADO" || status === "CANCELADO") && input?.statusReason === undefined) {
+    throw new Error("Informe um motivo (pode ser vazio) para RECUSADO/CANCELADO.");
+  }
+
   const now = nowISO();
   const record = {
     id: uid(),
     dateISO,
+    timeHM,
     clientId: client.id,
     clientName: client.name, // snapshot (histórico não quebra se o cliente for editado/deletado)
     items,
     notes: String(input?.notes ?? "").trim(),
     total: computeTotal(items, 0),
+    status,
+    statusReason: status === "RECUSADO" || status === "CANCELADO" ? statusReason : "",
     createdAt: now,
     updatedAt: now
   };
@@ -270,6 +403,7 @@ export function updateRecord(id, patch) {
   const next = { ...cur };
 
   if (patch?.dateISO !== undefined) next.dateISO = String(patch.dateISO ?? "").slice(0, 10) || todayISO();
+  if (patch?.timeHM !== undefined) next.timeHM = normalizeTimeHM(patch.timeHM);
 
   if (patch?.clientId !== undefined) {
     const client = _db.clients.find((c) => c.id === String(patch.clientId));
@@ -286,6 +420,32 @@ export function updateRecord(id, patch) {
   }
 
   if (patch?.notes !== undefined) next.notes = String(patch.notes ?? "").trim();
+
+  if (patch?.status !== undefined) {
+    const nextStatus = normalizeRecordStatus(patch.status);
+    const isChanging = nextStatus !== String(cur.status || "APROVADO");
+
+    if (isChanging && (nextStatus === "RECUSADO" || nextStatus === "CANCELADO")) {
+      // motivo é obrigatório (mas pode ser vazio): exigimos presença no patch
+      if (patch.statusReason === undefined) {
+        throw new Error("Informe um motivo (pode ser vazio) para RECUSADO/CANCELADO.");
+      }
+      next.statusReason = String(patch.statusReason ?? "");
+    }
+
+    if (isChanging && nextStatus !== "RECUSADO" && nextStatus !== "CANCELADO") {
+      // saindo de um estado que tinha motivo
+      next.statusReason = "";
+    }
+
+    next.status = nextStatus;
+  }
+
+  if (patch?.statusReason !== undefined && (String(next.status) === "RECUSADO" || String(next.status) === "CANCELADO")) {
+    // permite ajustar motivo sem mudar status (ex.: correção)
+    next.statusReason = String(patch.statusReason ?? "");
+  }
+
   next.updatedAt = nowISO();
 
   _db.records[idx] = next;
@@ -313,9 +473,11 @@ export function createBudget(input) {
   const discount = toNumber(input?.discount, 0);
   const validityDays = Math.max(0, Math.floor(toNumber(input?.validityDays, 7)));
   const now = nowISO();
+  const id = uid();
 
   const budget = {
-    id: uid(),
+    id,
+    code: buildBudgetCode({ id, createdAt: now }),
     clientId: client.id,
     clientName: client.name, // snapshot
     items,
@@ -357,6 +519,9 @@ export function updateBudget(id, patch) {
   next.total = computeTotal(next.items, next.discount);
   next.updatedAt = nowISO();
 
+  // garante código (ex.: dados antigos / import)
+  if (!next.code) next.code = buildBudgetCode({ id: next.id, createdAt: next.createdAt });
+
   _db.budgets[idx] = next;
   persist();
   return clone(next);
@@ -369,18 +534,21 @@ export function deleteBudget(id) {
   persist();
 }
 
-export function createRecordFromBudget(budgetId, { dateISO } = {}) {
+export function createRecordFromBudget(budgetId, { dateISO, timeHM } = {}) {
   const b = _db.budgets.find((x) => x.id === budgetId);
   if (!b) throw new Error("Orçamento não encontrado.");
   const now = nowISO();
   const record = {
     id: uid(),
     dateISO: String(dateISO ?? todayISO()).slice(0, 10),
+    timeHM: normalizeTimeHM(timeHM),
     clientId: b.clientId,
     clientName: b.clientName,
     items: clone(b.items),
     notes: b.notes ? `Convertido de orçamento ${b.id}\n${b.notes}` : `Convertido de orçamento ${b.id}`,
     total: computeTotal(b.items, 0),
+    status: "APROVADO",
+    statusReason: "",
     createdAt: now,
     updatedAt: now
   };
@@ -394,7 +562,7 @@ export function createRecordFromBudget(budgetId, { dateISO } = {}) {
 export function exportBackup() {
   return clone({
     exportedAt: nowISO(),
-    app: "dttz-agenda-servicos",
+    app: "dttv-agenda-servicos",
     version: SCHEMA_VERSION,
     data: clone(_db)
   });
@@ -473,6 +641,9 @@ export function importBackup(payload) {
         contact: String(c.contact ?? "").trim(),
         email: String(c.email ?? "").trim(),
         location: String(c.location ?? "").trim(),
+        periodValue: Math.max(0, Math.floor(toNumber(c.periodValue, 0))),
+        periodUnit: String(c.periodUnit ?? "").trim(),
+        periodStartISO: String(c.periodStartISO ?? "").slice(0, 10),
         createdAt: typeof c.createdAt === "string" ? c.createdAt : nowISO(),
         updatedAt: typeof c.updatedAt === "string" ? c.updatedAt : nowISO()
       }))
@@ -535,6 +706,7 @@ export function importBackup(payload) {
     }
   }
 
+  ensureBudgetCodes();
   persist();
   return clone(summary);
 }

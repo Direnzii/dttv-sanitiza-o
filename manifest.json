@@ -1,6 +1,6 @@
 {
-  "name": "DTTZ — Agenda & Serviços",
-  "short_name": "DTTZ",
+  "name": "DTTV — Agenda & Serviços",
+  "short_name": "DTTV",
   "description": "Gerenciador de Agenda e Serviços (PWA): clientes, serviços, orçamentos com PDF e dashboard offline.",
   "start_url": "./index.html",
   "scope": "./",

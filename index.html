@@ -32,7 +32,7 @@
     <!-- PDF (jsPDF UMD) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 
-    <title>DTTZ — Agenda & Serviços</title>
+    <title>DTTV — Agenda & Serviços</title>
   </head>
   <body class="h-full bg-slate-50 text-slate-900 antialiased">
     <div id="app" class="min-h-full">
@@ -44,7 +44,7 @@
               <span class="text-sm font-semibold tracking-tight">D</span>
             </div>
             <div>
-              <div class="text-sm font-semibold leading-5">DTTZ</div>
+              <div class="text-sm font-semibold leading-5">DTTV</div>
               <div class="text-xs text-slate-500">Agenda & Serviços</div>
             </div>
           </div>
@@ -99,6 +99,10 @@
                 <i data-lucide="file-text" class="h-4 w-4"></i>
                 Orçamentos & PDF
               </button>
+              <button class="nav-btn w-full" data-route="notifications" type="button">
+                <i data-lucide="bell" class="h-4 w-4"></i>
+                Notificações
+              </button>
               <button class="nav-btn w-full" data-route="backup" type="button">
                 <i data-lucide="database-backup" class="h-4 w-4"></i>
                 Backup (JSON)
@@ -111,17 +115,14 @@
         <main class="space-y-4">
           <div id="view" class="min-h-[60vh]"></div>
 
-          <footer class="pb-20 md:pb-0">
-            <div class="rounded-2xl border border-slate-200 bg-white px-4 py-3 text-xs text-slate-500 shadow-sm">
-              Offline-first (PWA) • Dados em <span class="font-medium text-slate-700">localStorage</span> • Sem backend
-            </div>
-          </footer>
+          <!-- Espaço extra para não ficar atrás do menu mobile -->
+          <div class="h-24 md:h-0"></div>
         </main>
       </div>
 
       <!-- Bottom Nav (mobile) -->
       <nav class="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/90 backdrop-blur md:hidden">
-        <div class="mx-auto grid max-w-6xl grid-cols-5 gap-1 px-2 py-2">
+        <div class="mx-auto grid max-w-6xl grid-cols-6 gap-1 px-2 py-2">
           <button class="nav-btn nav-btn--compact" data-route="home" type="button" title="Dashboard">
             <i data-lucide="layout-dashboard" class="h-5 w-5"></i>
             <span>Home</span>
@@ -141,6 +142,10 @@
           <button class="nav-btn nav-btn--compact" data-route="budgets" type="button" title="Orçamentos">
             <i data-lucide="file-text" class="h-5 w-5"></i>
             <span>PDF</span>
+          </button>
+          <button class="nav-btn nav-btn--compact" data-route="notifications" type="button" title="Notificações">
+            <i data-lucide="bell" class="h-5 w-5"></i>
+            <span>Alertas</span>
           </button>
         </div>
       </nav>

@@ -1,5 +1,5 @@
 import { EVENTS, emit, on } from "./state.js";
-import { exportBackup } from "./db.js";
+import { exportFullBackup } from "./backupManager.js";
 import { downloadTextFile } from "./utils.js";
 import { showToast } from "./ui/toast.js";
 import { getRoute, navigate, setActiveNav, startRouter } from "./ui/router.js";
@@ -10,6 +10,8 @@ import { renderServices } from "./views/services.js";
 import { renderRecords } from "./views/records.js";
 import { renderBudgets } from "./views/budgets.js";
 import { renderBackup } from "./views/backup.js";
+import { startAlerts } from "./alerts.js";
+import { renderNotifications } from "./views/notifications.js";
 
 const view = () => document.getElementById("view");
 
@@ -19,7 +21,8 @@ const VIEWS = {
   services: renderServices,
   records: renderRecords,
   budgets: renderBudgets,
-  backup: renderBackup
+  backup: renderBackup,
+  notifications: renderNotifications
 };
 
 let currentRoute = "home";
@@ -48,9 +51,9 @@ function bindQuickBackup() {
   const btn = document.getElementById("btn-quick-backup");
   if (!btn) return;
   btn.addEventListener("click", () => {
-    const backup = exportBackup();
+    const backup = exportFullBackup();
     downloadTextFile({
-      filename: `dttz-backup-${String(backup.exportedAt).slice(0, 10)}.json`,
+      filename: `dttv-backup-${String(backup.exportedAt).slice(0, 10)}.json`,
       mime: "application/json",
       text: JSON.stringify(backup, null, 2)
     });
@@ -122,13 +125,14 @@ function start() {
   render(getRoute());
 
   registerServiceWorker();
+  startAlerts();
 }
 
 // Boot
 start();
 
 // Expor um helper útil no console para debug sem poluir UI.
-window.__dttz = {
+window.__dttv = {
   rerender: () => emit(EVENTS.DATA_CHANGED),
   navigate
 };

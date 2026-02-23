@@ -36,35 +36,6 @@ export function card(children, { className = "" } = {}) {
   return el("div", { class: `rounded-2xl border border-slate-200 bg-white p-4 shadow-sm ${className}` }, children);
 }
 
-export function button({
-  label,
-  icon,
-  variant = "primary",
-  type = "button",
-  onClick,
-  title,
-  disabled = false
-} = {}) {
-  const variants = {
-    primary: "bg-slate-900 text-white hover:bg-slate-800",
-    secondary: "border border-slate-200 bg-white text-slate-700 hover:bg-slate-100",
-    danger: "bg-rose-600 text-white hover:bg-rose-700"
-  };
-
-  return el(
-    "button",
-    {
-      type,
-      title: title || label || "",
-      class: `inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold shadow-sm ${
-        variants[variant] || variants.primary
-      } ${disabled ? "opacity-60 pointer-events-none" : ""}`,
-      onclick: onClick
-    },
-    [icon ? el("i", { dataset: { lucide: icon }, class: "h-4 w-4" }) : null, el("span", {}, label || "")]
-  );
-}
-
 export function input({ label, name, value = "", type = "text", placeholder = "", required = false } = {}) {
   const id = `f_${name}_${Math.random().toString(36).slice(2, 7)}`;
   return el("div", { class: "space-y-1" }, [
