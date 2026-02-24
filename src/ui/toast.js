@@ -17,9 +17,12 @@ function toastIcon(type) {
 export function showToast(message, { type = "info", timeoutMs = 2800 } = {}) {
   const container = root();
   if (!container) return;
+  // Defesa contra regressões de z-index no HTML/CSS.
+  // Toast precisa ficar acima de modais.
+  container.style.zIndex = "1000";
 
-  const el = document.createElement("div");
-  el.className = `pointer-events-auto flex max-w-[92vw] items-start gap-3 rounded-2xl border p-3 shadow-soft ${toastColors(type)}`;
+  const toastEl = document.createElement("div");
+  toastEl.className = `pointer-events-auto flex max-w-[92vw] items-start gap-3 rounded-2xl border p-3 shadow-soft ${toastColors(type)}`;
 
   const icon = document.createElement("i");
   icon.dataset.lucide = toastIcon(type);
@@ -27,28 +30,36 @@ export function showToast(message, { type = "info", timeoutMs = 2800 } = {}) {
 
   const body = document.createElement("div");
   body.className = "min-w-0";
-  body.innerHTML = `<div class="text-sm font-semibold">Mensagem</div><div class="mt-0.5 break-words text-sm/5">${String(
-    message ?? ""
-  )}</div>`;
+  const title = document.createElement("div");
+  title.className = "text-sm font-semibold";
+  title.textContent = "Mensagem";
+  const msg = document.createElement("div");
+  msg.className = "mt-0.5 break-words text-sm/5";
+  msg.textContent = String(message ?? "");
+  body.appendChild(title);
+  body.appendChild(msg);
 
   const close = document.createElement("button");
   close.type = "button";
   close.className = "ml-1 rounded-lg p-1 text-current/70 hover:bg-black/5";
   close.title = "Fechar";
-  close.innerHTML = `<i data-lucide="x" class="h-4 w-4"></i>`;
+  const closeIcon = document.createElement("i");
+  closeIcon.dataset.lucide = "x";
+  closeIcon.className = "h-4 w-4";
+  close.appendChild(closeIcon);
 
   const remove = () => {
-    el.classList.add("opacity-0", "translate-y-1");
-    el.style.transition = "opacity 160ms ease, transform 160ms ease";
-    setTimeout(() => el.remove(), 180);
+    toastEl.classList.add("opacity-0", "translate-y-1");
+    toastEl.style.transition = "opacity 160ms ease, transform 160ms ease";
+    setTimeout(() => toastEl.remove(), 180);
   };
 
   close.addEventListener("click", remove);
 
-  el.appendChild(icon);
-  el.appendChild(body);
-  el.appendChild(close);
-  container.appendChild(el);
+  toastEl.appendChild(icon);
+  toastEl.appendChild(body);
+  toastEl.appendChild(close);
+  container.appendChild(toastEl);
 
   // Recria ícones gerados dinamicamente
   globalThis.lucide?.createIcons?.();

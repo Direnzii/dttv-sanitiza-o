@@ -21,5 +21,6 @@ export function emit(eventName, payload) {
 
 export const EVENTS = {
   ROUTE_CHANGED: "route_changed",
-  DATA_CHANGED: "data_changed"
+  DATA_CHANGED: "data_changed",
+  ENV_CHANGED: "env_changed"
 };

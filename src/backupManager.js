@@ -106,8 +106,13 @@ function mergeDueState(existing, incoming) {
   let updated = 0;
   let created = 0;
   let skipped = 0;
+  const FORBIDDEN_KEYS = new Set(["__proto__", "prototype", "constructor"]);
   for (const [k, v] of Object.entries(incoming || {})) {
     const key = String(k);
+    if (FORBIDDEN_KEYS.has(key)) {
+      skipped++;
+      continue;
+    }
     const val = String(v || "");
     if (!val) {
       skipped++;

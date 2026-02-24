@@ -1,10 +1,13 @@
 import { createClient, deleteClient, listClients, updateClient } from "../db.js";
 import { EVENTS, emit } from "../state.js";
 import { card, clear, el, emptyState, input, pageHeader } from "../ui/components.js";
+import { openActionsModal } from "../ui/actions.js";
 import { confirmDialog, openModal } from "../ui/modal.js";
 import { showToast } from "../ui/toast.js";
 import { computeClientDue, resetClientPeriodStartToday } from "../alerts.js";
-import { formatDateBR, todayISO } from "../utils.js";
+import { todayISO, openExternal } from "../utils.js";
+import { isDevEnv } from "../env.js";
+import { mockClientInitial } from "../mock.js";
 
 function clientForm({ initial = {}, onSave }) {
   const form = el("form", { class: "space-y-3" });
@@ -39,8 +42,6 @@ function clientForm({ initial = {}, onSave }) {
   );
   unitSelect.value = initial.periodUnit === "days" ? "days" : "months";
 
-  const helper = el("div", { class: "text-xs text-slate-500" }, "");
-
   const resetBtn = el(
     "button",
     {
@@ -64,28 +65,6 @@ function clientForm({ initial = {}, onSave }) {
     [el("i", { dataset: { lucide: "rotate-ccw" }, class: "h-4 w-4" }), "Reiniciar contagem hoje"]
   );
 
-  function syncHelper() {
-    const pv = Number(pvInput.value || 0);
-    const unit = unitSelect.value;
-    if (!pv || pv <= 0) {
-      helper.textContent = "Deixe vazio/0 para não receber alertas automáticos para este cliente.";
-      return;
-    }
-    const due = computeClientDue(
-      {
-        periodValue: pv,
-        periodUnit: unit,
-        periodStartISO: initial.periodStartISO || todayISO()
-      },
-      todayISO()
-    );
-    helper.textContent = `A contagem começa em ${formatDateBR(due.startISO)}. Próximo vencimento em ${formatDateBR(due.dueISO)}.`;
-  }
-
-  pvInput.addEventListener("input", syncHelper);
-  unitSelect.addEventListener("change", syncHelper);
-  syncHelper();
-
   form.appendChild(
     el("div", { class: "grid grid-cols-1 gap-3 sm:grid-cols-2" }, [
       pvWrap,
@@ -95,7 +74,6 @@ function clientForm({ initial = {}, onSave }) {
       ])
     ])
   );
-  form.appendChild(helper);
   if (initial?.id) form.appendChild(el("div", { class: "pt-1" }, resetBtn));
 
   // Fallback para browsers sem `requestSubmit()`: um submit hidden.
@@ -124,6 +102,11 @@ function clientForm({ initial = {}, onSave }) {
   return form;
 }
 
+function waLinkFromContact(contact) {
+  const digits = String(contact || "").replace(/\D+/g, "");
+  return digits ? `https://wa.me/${digits}` : "";
+}
+
 export function renderClients(container) {
   const state = { q: "" };
   const listHost = el("div");
@@ -140,9 +123,9 @@ export function renderClients(container) {
     renderList();
   };
 
-  function openCreate() {
+  function openCreate(initial = {}) {
     const form = clientForm({
-      initial: {},
+      initial: initial || {},
       onSave: async (payload) => {
         createClient(payload);
         emit(EVENTS.DATA_CHANGED);
@@ -223,6 +206,27 @@ export function renderClients(container) {
     });
   }
 
+  function openActions(client) {
+    const waUrl = waLinkFromContact(client?.contact);
+    openActionsModal({
+      title: client?.name ? String(client.name) : "Cliente",
+      subtitle: client?.contact ? String(client.contact) : "",
+      actions: [
+        {
+          label: "WhatsApp",
+          icon: "message-circle",
+          disabled: !waUrl,
+          onClick: () => {
+            if (!waUrl) return;
+            openExternal(waUrl);
+          }
+        },
+        { label: "Editar", icon: "pencil", onClick: () => openEdit(client) },
+        { label: "Excluir", icon: "trash-2", variant: "danger", onClick: () => onDelete(client) }
+      ]
+    });
+  }
+
   async function onDelete(client) {
     const ok = await confirmDialog({
       title: "Excluir cliente",
@@ -293,27 +297,19 @@ export function renderClients(container) {
                   el("td", { class: "px-3 py-2 hidden md:table-cell text-slate-700" }, c.contact || "—"),
                   el("td", { class: "px-3 py-2 hidden lg:table-cell text-slate-700" }, c.email || "—"),
                   el("td", { class: "px-3 py-2 hidden lg:table-cell text-slate-700" }, c.location || "—"),
-                  el("td", { class: "px-3 py-2" }, [
-                    el("div", { class: "flex items-center justify-end gap-2" }, [
+                  el("td", { class: "px-3 py-2 text-right align-middle" }, [
+                    el("div", { class: "flex items-center justify-end" }, [
                       el(
                         "button",
                         {
                           type: "button",
                           class:
-                            "inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100",
-                          onclick: () => openEdit(c)
+                            "inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white p-2 text-slate-700 hover:bg-slate-100",
+                          title: "Ações",
+                          "aria-label": "Ações",
+                          onclick: () => openActions(c)
                         },
-                        [el("i", { dataset: { lucide: "pencil" }, class: "h-4 w-4" }), "Editar"]
-                      ),
-                      el(
-                        "button",
-                        {
-                          type: "button",
-                          class:
-                            "inline-flex items-center gap-2 rounded-lg bg-rose-600 px-3 py-2 text-sm font-semibold text-white hover:bg-rose-700",
-                          onclick: () => onDelete(c)
-                        },
-                        [el("i", { dataset: { lucide: "trash-2" }, class: "h-4 w-4" }), "Excluir"]
+                        [el("i", { dataset: { lucide: "more-vertical" }, class: "h-5 w-5" })]
                       )
                     ])
                   ])
@@ -336,17 +332,29 @@ export function renderClients(container) {
       {
         type: "button",
         class:
-          "inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100",
+          "inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 sm:w-auto",
         onclick: applyFilters
       },
       [el("i", { dataset: { lucide: "filter" }, class: "h-4 w-4" }), "Filtrar"]
     ),
+    isDevEnv()
+      ? el(
+          "button",
+          {
+            type: "button",
+            class:
+              "inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 sm:w-auto",
+            onclick: () => openCreate(mockClientInitial())
+          },
+          [el("i", { dataset: { lucide: "sparkles" }, class: "h-4 w-4" }), "Criar Mock"]
+        )
+      : null,
     el(
       "button",
       {
         type: "button",
         class:
-          "inline-flex items-center justify-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white shadow-soft hover:bg-slate-800",
+          "inline-flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white shadow-soft hover:bg-slate-800 sm:w-auto",
         onclick: openCreate
       },
       [el("i", { dataset: { lucide: "plus" }, class: "h-4 w-4" }), "Novo"]

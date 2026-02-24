@@ -57,6 +57,23 @@ export function normalizeText(s) {
     .replace(/[\u0300-\u036f]/g, "");
 }
 
+export function openExternal(url) {
+  const href = String(url || "").trim();
+  if (!href) return false;
+  try {
+    const w = window.open(href, "_blank", "noopener,noreferrer");
+    if (!w) window.location.href = href;
+    return true;
+  } catch {
+    try {
+      window.location.href = href;
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
 export function downloadTextFile({ filename, mime, text }) {
   const blob = new Blob([text], { type: mime });
   const url = URL.createObjectURL(blob);
@@ -76,6 +93,53 @@ export function readFileAsText(file) {
     reader.onerror = () => reject(reader.error || new Error("Falha ao ler arquivo."));
     reader.readAsText(file);
   });
+}
+
+export function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(reader.error || new Error("Falha ao ler arquivo."));
+    reader.readAsDataURL(file);
+  });
+}
+
+export async function readImageFileAsPngDataUrl(file, { maxPx = 256 } = {}) {
+  if (!file) throw new Error("Selecione um arquivo.");
+  const type = String(file.type || "").toLowerCase();
+  if (type !== "image/png" && type !== "image/jpeg") {
+    throw new Error("Formato inválido. Aceita apenas PNG ou JPG.");
+  }
+
+  const rawUrl = await readFileAsDataUrl(file);
+  const img = new Image();
+  img.decoding = "async";
+
+  await new Promise((resolve, reject) => {
+    img.onload = () => resolve();
+    img.onerror = () => reject(new Error("Não foi possível carregar a imagem."));
+    img.src = rawUrl;
+  });
+
+  const w = img.naturalWidth || img.width;
+  const h = img.naturalHeight || img.height;
+  if (!w || !h) throw new Error("Imagem inválida.");
+
+  const scale = Math.min(1, maxPx / Math.max(w, h));
+  const tw = Math.max(1, Math.round(w * scale));
+  const th = Math.max(1, Math.round(h * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = tw;
+  canvas.height = th;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return rawUrl; // fallback
+
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(img, 0, 0, tw, th);
+
+  return canvas.toDataURL("image/png");
 }
 
 export function addDaysISO(dateISO, days) {

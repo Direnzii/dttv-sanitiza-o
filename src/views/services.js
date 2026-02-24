@@ -2,8 +2,11 @@ import { createService, deleteService, listServices, updateService } from "../db
 import { EVENTS, emit } from "../state.js";
 import { formatCurrencyBRL } from "../utils.js";
 import { card, clear, el, emptyState, input, pageHeader, textarea } from "../ui/components.js";
+import { openActionsModal } from "../ui/actions.js";
 import { confirmDialog, openModal } from "../ui/modal.js";
 import { showToast } from "../ui/toast.js";
+import { isDevEnv } from "../env.js";
+import { mockServiceInitial } from "../mock.js";
 
 function serviceForm({ initial = {}, onSave }) {
   const form = el("form", { class: "space-y-3" });
@@ -54,9 +57,9 @@ export function renderServices(container) {
     renderList();
   };
 
-  function openCreate() {
+  function openCreate(initial = {}) {
     const form = serviceForm({
-      initial: {},
+      initial: initial || {},
       onSave: async (payload) => {
         createService(payload);
         emit(EVENTS.DATA_CHANGED);
@@ -106,6 +109,17 @@ export function renderServices(container) {
     });
   }
 
+  function openActions(service) {
+    openActionsModal({
+      title: service?.name ? String(service.name) : "Serviço",
+      subtitle: service?.detail ? String(service.detail).slice(0, 120) : "",
+      actions: [
+        { label: "Editar", icon: "pencil", onClick: () => openEdit(service) },
+        { label: "Excluir", icon: "trash-2", variant: "danger", onClick: () => onDelete(service) }
+      ]
+    });
+  }
+
   async function onDelete(service) {
     const ok = await confirmDialog({
       title: "Excluir serviço",
@@ -150,14 +164,47 @@ export function renderServices(container) {
 
     listHost.appendChild(
       card([
-        el("div", { class: "overflow-x-auto rounded-xl border border-slate-200" }, [
-          el("table", { class: "min-w-[720px] w-full text-left text-sm" }, [
+        // Mobile: cards simples (sem "colunas"/rótulos)
+        el("div", { class: "space-y-2 md:hidden" }, [
+          ...items.map((s) =>
+            el("div", { class: "rounded-2xl border border-slate-200 bg-white p-3" }, [
+              el("div", { class: "flex items-start justify-between gap-3" }, [
+                el("div", { class: "min-w-0" }, [
+                  el("div", { class: "truncate text-sm font-semibold text-slate-800" }, s.name),
+                  el("div", { class: "mt-1 line-clamp-2 text-xs text-slate-600" }, s.detail ? s.detail : "Sem detalhe"),
+                  el("div", { class: "mt-2" }, [
+                    el("div", { class: "text-xs text-slate-500" }, "Total"),
+                    el("div", { class: "mt-0.5 text-sm font-semibold text-slate-900" }, formatCurrencyBRL(s.totalCost))
+                  ])
+                ]),
+                el("div", { class: "shrink-0" }, [
+                  el(
+                    "button",
+                    {
+                      type: "button",
+                      class:
+                        "inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white p-2 text-slate-700 hover:bg-slate-100",
+                      title: "Ações",
+                      "aria-label": "Ações",
+                      onclick: () => openActions(s)
+                    },
+                    [el("i", { dataset: { lucide: "more-vertical" }, class: "h-5 w-5" })]
+                  )
+                ])
+              ])
+            ])
+          )
+        ]),
+
+        // Desktop: tabela completa
+        el("div", { class: "hidden overflow-x-auto rounded-xl border border-slate-200 md:block" }, [
+          el("table", { class: "w-full text-left text-sm" }, [
             el("thead", { class: "bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" }, [
               el("tr", {}, [
-                el("th", { class: "px-3 py-2" }, "Nome"),
-                el("th", { class: "px-3 py-2 hidden lg:table-cell" }, "Detalhe"),
-                el("th", { class: "px-3 py-2 text-right" }, "Custo total"),
-                el("th", { class: "px-3 py-2 text-right" }, "Ações")
+                el("th", { class: "px-3 py-2" }, "NOME"),
+                el("th", { class: "px-3 py-2 hidden lg:table-cell" }, "DETALHE"),
+                el("th", { class: "px-3 py-2 text-right" }, "CUSTO"),
+                el("th", { class: "px-3 py-2 text-right" }, "AÇÕES")
               ])
             ]),
             el("tbody", { class: "divide-y divide-slate-200 bg-white" }, [
@@ -167,28 +214,18 @@ export function renderServices(container) {
                   el("td", { class: "px-3 py-2 hidden lg:table-cell text-slate-700" }, s.detail || "—"),
                   el("td", { class: "px-3 py-2 text-right font-semibold text-slate-900" }, formatCurrencyBRL(s.totalCost)),
                   el("td", { class: "px-3 py-2" }, [
-                    el("div", { class: "flex items-center justify-end gap-2" }, [
-                      el(
-                        "button",
-                        {
-                          type: "button",
-                          class:
-                            "inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100",
-                          onclick: () => openEdit(s)
-                        },
-                        [el("i", { dataset: { lucide: "pencil" }, class: "h-4 w-4" }), "Editar"]
-                      ),
-                      el(
-                        "button",
-                        {
-                          type: "button",
-                          class:
-                            "inline-flex items-center gap-2 rounded-lg bg-rose-600 px-3 py-2 text-sm font-semibold text-white hover:bg-rose-700",
-                          onclick: () => onDelete(s)
-                        },
-                        [el("i", { dataset: { lucide: "trash-2" }, class: "h-4 w-4" }), "Excluir"]
-                      )
-                    ])
+                    el(
+                      "button",
+                      {
+                        type: "button",
+                        class:
+                          "inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white p-2 text-slate-700 hover:bg-slate-100",
+                        title: "Ações",
+                        "aria-label": "Ações",
+                        onclick: () => openActions(s)
+                      },
+                      [el("i", { dataset: { lucide: "more-vertical" }, class: "h-5 w-5" })]
+                    )
                   ])
                 ])
               )
@@ -209,17 +246,29 @@ export function renderServices(container) {
       {
         type: "button",
         class:
-          "inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100",
+          "inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 sm:w-auto",
         onclick: applyFilters
       },
       [el("i", { dataset: { lucide: "filter" }, class: "h-4 w-4" }), "Filtrar"]
     ),
+    isDevEnv()
+      ? el(
+          "button",
+          {
+            type: "button",
+            class:
+              "inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 sm:w-auto",
+            onclick: () => openCreate(mockServiceInitial())
+          },
+          [el("i", { dataset: { lucide: "sparkles" }, class: "h-4 w-4" }), "Criar Mock"]
+        )
+      : null,
     el(
       "button",
       {
         type: "button",
         class:
-          "inline-flex items-center justify-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white shadow-soft hover:bg-slate-800",
+          "inline-flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white shadow-soft hover:bg-slate-800 sm:w-auto",
         onclick: openCreate
       },
       [el("i", { dataset: { lucide: "plus" }, class: "h-4 w-4" }), "Novo"]

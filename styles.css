@@ -30,10 +30,22 @@
 
 .nav-btn--compact {
   flex-direction: column;
-  gap: 0.25rem;
-  padding: 0.5rem 0.35rem;
-  font-size: 0.7rem;
+  min-width: 0;
+  gap: 0.2rem;
+  padding: 0.45rem 0.25rem;
+  font-size: 0.65rem;
   font-weight: 700;
+}
+
+.nav-btn--compact .nav-btn__label {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nav-btn--compact .nav-btn__icon {
+  overflow: visible;
 }
 
 /* Pequenas melhorias de legibilidade */

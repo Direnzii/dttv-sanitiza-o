@@ -7,8 +7,8 @@
     <meta name="description" content="Gerenciador de Agenda e Serviços (PWA) — Clientes, Serviços, Orçamentos e Dashboard offline." />
 
     <link rel="manifest" href="./manifest.json" />
-    <link rel="icon" href="./assets/icons/icon.svg" type="image/svg+xml" />
-    <link rel="apple-touch-icon" href="./assets/icons/icon-192.svg" />
+    <link id="favicon" rel="icon" href="./assets/icons/icon.svg" type="image/svg+xml" />
+    <link id="apple-touch-icon" rel="apple-touch-icon" href="./assets/icons/icon-192.svg" />
     <link rel="stylesheet" href="./styles.css" />
 
     <!-- Tailwind via CDN (agilidade) -->
@@ -40,8 +40,9 @@
       <header class="sticky top-0 z-30 border-b border-slate-200/80 bg-white/80 backdrop-blur">
         <div class="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
           <div class="flex items-center gap-3">
-            <div class="grid h-10 w-10 place-items-center rounded-xl bg-slate-900 text-white shadow-soft">
-              <span class="text-sm font-semibold tracking-tight">D</span>
+            <div id="app-logo" class="grid h-10 w-10 place-items-center overflow-hidden rounded-xl bg-slate-900 text-white shadow-soft">
+              <span id="app-logo-text" class="text-sm font-semibold tracking-tight">D</span>
+              <img id="app-logo-img" class="hidden h-full w-full object-cover" alt="DTTV" />
             </div>
             <div>
               <div class="text-sm font-semibold leading-5">DTTV</div>
@@ -50,6 +51,15 @@
           </div>
 
           <div class="flex items-center gap-2">
+            <button
+              id="btn-update"
+              class="hidden items-center gap-2 rounded-lg bg-amber-500 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-amber-600"
+              type="button"
+              title="Atualizar app"
+            >
+              <i data-lucide="refresh-cw" class="h-4 w-4"></i>
+              Atualizar
+            </button>
             <button
               id="btn-install"
               class="hidden items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
@@ -65,7 +75,7 @@
               type="button"
               title="Exportar backup"
             >
-              <i data-lucide="shield" class="h-4 w-4"></i>
+              <i data-lucide="download" class="h-4 w-4"></i>
               Backup
             </button>
           </div>
@@ -104,8 +114,8 @@
                 Notificações
               </button>
               <button class="nav-btn w-full" data-route="backup" type="button">
-                <i data-lucide="database-backup" class="h-4 w-4"></i>
-                Backup (JSON)
+                <i data-lucide="settings" class="h-4 w-4"></i>
+                Config
               </button>
             </div>
           </nav>
@@ -122,36 +132,46 @@
 
       <!-- Bottom Nav (mobile) -->
       <nav class="fixed inset-x-0 bottom-0 z-40 border-t border-slate-200 bg-white/90 backdrop-blur md:hidden">
-        <div class="mx-auto grid max-w-6xl grid-cols-6 gap-1 px-2 py-2">
+        <div class="mx-auto grid max-w-6xl grid-cols-7 gap-1 px-1 py-2">
           <button class="nav-btn nav-btn--compact" data-route="home" type="button" title="Dashboard">
             <i data-lucide="layout-dashboard" class="h-5 w-5"></i>
-            <span>Home</span>
+            <span class="nav-btn__label">Home</span>
           </button>
           <button class="nav-btn nav-btn--compact" data-route="records" type="button" title="Agenda">
             <i data-lucide="calendar-days" class="h-5 w-5"></i>
-            <span>Agenda</span>
+            <span class="nav-btn__label">Agenda</span>
           </button>
           <button class="nav-btn nav-btn--compact" data-route="clients" type="button" title="Clientes">
             <i data-lucide="users" class="h-5 w-5"></i>
-            <span>Clientes</span>
+            <span class="nav-btn__label">Clientes</span>
           </button>
           <button class="nav-btn nav-btn--compact" data-route="services" type="button" title="Serviços">
             <i data-lucide="briefcase" class="h-5 w-5"></i>
-            <span>Serviços</span>
+            <span class="nav-btn__label">Serviços</span>
           </button>
           <button class="nav-btn nav-btn--compact" data-route="budgets" type="button" title="Orçamentos">
             <i data-lucide="file-text" class="h-5 w-5"></i>
-            <span>PDF</span>
+            <span class="nav-btn__label">ORC</span>
           </button>
           <button class="nav-btn nav-btn--compact" data-route="notifications" type="button" title="Notificações">
-            <i data-lucide="bell" class="h-5 w-5"></i>
-            <span>Alertas</span>
+            <span class="nav-btn__icon relative inline-flex">
+              <i data-lucide="bell" class="h-5 w-5"></i>
+              <span
+                id="nav-badge-notifications"
+                class="pointer-events-none absolute -right-2 -top-1 hidden min-w-[18px] rounded-full bg-rose-600 px-1.5 text-center text-[10px] font-bold leading-[18px] text-white ring-2 ring-white"
+              ></span>
+            </span>
+            <span class="nav-btn__label">Alertas</span>
+          </button>
+          <button class="nav-btn nav-btn--compact" data-route="backup" type="button" title="Config">
+            <i data-lucide="settings" class="h-5 w-5"></i>
+            <span class="nav-btn__label">Config</span>
           </button>
         </div>
       </nav>
 
       <!-- UI roots -->
-      <div id="toasts" class="pointer-events-none fixed right-3 top-16 z-50 space-y-2 md:top-20"></div>
+      <div id="toasts" class="pointer-events-none fixed right-3 top-16 z-[1000] space-y-2 md:top-20"></div>
       <div id="modal-root"></div>
     </div>
 

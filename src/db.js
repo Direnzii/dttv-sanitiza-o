@@ -70,22 +70,6 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
-// Migração: adiciona `code` para orçamentos antigos.
-{
-  let changed = false;
-  for (const b of _db.budgets) {
-    if (!b || typeof b !== "object") continue;
-    if (!b.code) {
-      b.code = buildBudgetCode({ id: b.id, createdAt: b.createdAt });
-      changed = true;
-    }
-  }
-  if (changed) {
-    // Persistimos uma vez para não perder os códigos gerados.
-    persist();
-  }
-}
-
 function ensureBudgetCodes() {
   let changed = false;
   for (const b of _db.budgets) {
@@ -97,6 +81,9 @@ function ensureBudgetCodes() {
   }
   if (changed) persist();
 }
+
+// Migração: garante `code` em orçamentos antigos (executa uma vez no load).
+ensureBudgetCodes();
 
 export function getMeta() {
   return {

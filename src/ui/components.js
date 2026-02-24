@@ -3,7 +3,6 @@ export function el(tag, attrs = {}, children = []) {
   for (const [k, v] of Object.entries(attrs || {})) {
     if (v === undefined || v === null) continue;
     if (k === "class") node.className = String(v);
-    else if (k === "html") node.innerHTML = String(v);
     else if (k.startsWith("on") && typeof v === "function") node.addEventListener(k.slice(2), v);
     else if (k === "dataset" && typeof v === "object") Object.assign(node.dataset, v);
     else node.setAttribute(k, String(v));
@@ -26,9 +25,11 @@ export function pageHeader({ title, subtitle, right } = {}) {
     subtitle ? el("div", { class: "mt-0.5 text-sm text-slate-500" }, subtitle) : null
   ]);
 
-  return el("div", { class: "flex flex-wrap items-start justify-between gap-3" }, [
-    left,
-    right ? el("div", { class: "flex items-center gap-2" }, right) : null
+  // Sempre empilha: título em cima, ações/filtros abaixo.
+  // Isso evita inputs "espremidos" ao lado do título em telas menores.
+  return el("div", { class: "space-y-3" }, [
+    el("div", { class: "w-full" }, left),
+    right ? el("div", { class: "w-full" }, right) : null
   ]);
 }
 
@@ -62,9 +63,9 @@ export function textarea({ label, name, value = "", placeholder = "", rows = 4 }
       name,
       rows: String(rows),
       placeholder,
+      value: String(value ?? ""),
       class:
-        "w-full resize-y rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/20",
-      html: String(value ?? "")
+        "w-full resize-y rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/20"
     })
   ]);
 }

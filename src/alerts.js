@@ -23,7 +23,13 @@ function saveNotifState(state) {
 export function computeClientDue(client, asOfISO = todayISO(), ctx = {}) {
   const value = Number(client?.periodValue || 0);
   const unit = String(client?.periodUnit || "");
-  const startISO = String((ctx?.startISO ? ctx.startISO : client?.periodStartISO) ?? "").slice(0, 10);
+  // Regra de alertas: basear no último serviço executado.
+  // Quando `ctx.startISO` for passado (mesmo vazio), NÃO fazemos fallback para `client.periodStartISO`.
+  const startSource =
+    ctx && Object.prototype.hasOwnProperty.call(ctx, "startISO")
+      ? ctx.startISO
+      : client?.periodStartISO;
+  const startISO = String(startSource ?? "").slice(0, 10);
 
   if (!value || value <= 0) return { enabled: false };
   if (unit !== "days" && unit !== "months") return { enabled: false };
@@ -109,6 +115,13 @@ async function notifySystem({ title, body }) {
   } catch {
     return false;
   }
+}
+
+export async function testSystemNotification() {
+  return await notifySystem({
+    title: "DTTV — teste de notificação",
+    body: "Se você viu/escutou isso, as notificações do sistema estão funcionando."
+  });
 }
 
 function unitLabel(unit, value) {

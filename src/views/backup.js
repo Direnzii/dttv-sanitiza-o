@@ -1,10 +1,14 @@
 import { getMeta, hardResetDb } from "../db.js";
 import { EVENTS, emit } from "../state.js";
 import { exportFullBackup, importFullBackup } from "../backupManager.js";
-import { downloadTextFile, readFileAsText } from "../utils.js";
-import { card, el, pageHeader } from "../ui/components.js";
+import { downloadTextFile, readFileAsText, readImageFileAsPngDataUrl } from "../utils.js";
+import { card, clear, el, pageHeader } from "../ui/components.js";
 import { confirmDialog, openModal } from "../ui/modal.js";
 import { showToast } from "../ui/toast.js";
+import { applyTheme, clearTheme, getTheme, setAppIconDataUrl, setBudgetPdfIconDataUrl } from "../theme.js";
+import { isDevEnv, setDevEnv } from "../env.js";
+import { clearAllNotifications } from "../notifications.js";
+import { setLastBackupNow } from "../backupMeta.js";
 
 function summaryText(summary) {
   const parts = [];
@@ -17,6 +21,7 @@ function summaryText(summary) {
 
 export function renderBackup(container) {
   const meta = getMeta();
+  const theme = getTheme();
 
   const exportBtn = el(
     "button",
@@ -52,6 +57,7 @@ export function renderBackup(container) {
       mime: "application/json",
       text: JSON.stringify(backup, null, 2)
     });
+    setLastBackupNow();
     showToast("Backup exportado.", { type: "success" });
   });
 
@@ -65,12 +71,19 @@ export function renderBackup(container) {
       const summary = importFullBackup(json);
       emit(EVENTS.DATA_CHANGED);
 
+      const pre = el("pre", {
+        class:
+          "whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700"
+      });
+      pre.textContent =
+        `${summaryText(summary.db)}` +
+        `\n\nNotificações: +${summary.notifications.created} (ignoradas: ${summary.notifications.skipped})` +
+        `\nAnti-spam: +${summary.dueState.created} (atualizados: ${summary.dueState.updated}, ignorados: ${summary.dueState.skipped})`;
+
       openModal({
         title: "Importação concluída",
         subtitle: "Duplicados foram ignorados (ou usados para preencher campos vazios).",
-        content: `<pre class="whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">${summaryText(
-          summary.db
-        )}\n\nNotificações: +${summary.notifications.created} (ignoradas: ${summary.notifications.skipped})\nAnti-spam: +${summary.dueState.created} (atualizados: ${summary.dueState.updated}, ignorados: ${summary.dueState.skipped})</pre>`,
+        content: pre,
         actions: [
           {
             label: "Ok",
@@ -99,10 +112,249 @@ export function renderBackup(container) {
     showToast("Dados zerados.", { type: "success" });
   });
 
+  // ----- Tema -----
+  const appIconInput = el("input", {
+    type: "file",
+    accept: "image/png,image/jpeg,.png,.jpg,.jpeg",
+    class:
+      "block w-full cursor-pointer rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-900 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-slate-800"
+  });
+  const budgetIconInput = el("input", {
+    type: "file",
+    accept: "image/png,image/jpeg,.png,.jpg,.jpeg",
+    class:
+      "block w-full cursor-pointer rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-900 file:px-3 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-slate-800"
+  });
+
+  const appPreview = el("img", {
+    src: theme.appIconDataUrl || "",
+    alt: "Prévia do ícone do app",
+    class: `h-12 w-12 rounded-xl object-cover ring-1 ring-slate-200 ${theme.appIconDataUrl ? "" : "hidden"}`
+  });
+  const budgetPreview = el("img", {
+    src: theme.budgetPdfIconDataUrl || "",
+    alt: "Prévia do ícone do PDF (ORC)",
+    class: `h-10 w-10 rounded-xl object-cover ring-1 ring-slate-200 ${theme.budgetPdfIconDataUrl ? "" : "hidden"}`
+  });
+
+  const clearAppBtn = el(
+    "button",
+    {
+      type: "button",
+      class:
+        "inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 sm:w-auto",
+      onclick: () => {
+        setAppIconDataUrl("");
+        applyTheme();
+        appPreview.src = "";
+        appPreview.classList.add("hidden");
+        showToast("Ícone do app removido.", { type: "success" });
+      }
+    },
+    [el("i", { dataset: { lucide: "x" }, class: "h-4 w-4" }), "Remover ícone do app"]
+  );
+  const clearBudgetBtn = el(
+    "button",
+    {
+      type: "button",
+      class:
+        "inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 sm:w-auto",
+      onclick: () => {
+        setBudgetPdfIconDataUrl("");
+        budgetPreview.src = "";
+        budgetPreview.classList.add("hidden");
+        showToast("Ícone do PDF (ORC) removido.", { type: "success" });
+      }
+    },
+    [el("i", { dataset: { lucide: "x" }, class: "h-4 w-4" }), "Remover ícone do PDF"]
+  );
+
+  appIconInput.addEventListener("change", async () => {
+    const file = appIconInput.files?.[0];
+    if (!file) return;
+    try {
+      const dataUrl = await readImageFileAsPngDataUrl(file, { maxPx: 256 });
+      setAppIconDataUrl(dataUrl);
+      applyTheme();
+      appPreview.src = dataUrl;
+      appPreview.classList.remove("hidden");
+      showToast("Ícone do app atualizado.", { type: "success" });
+    } catch (err) {
+      showToast(err?.message || "Falha ao aplicar ícone do app.", { type: "error" });
+    } finally {
+      appIconInput.value = "";
+    }
+  });
+
+  budgetIconInput.addEventListener("change", async () => {
+    const file = budgetIconInput.files?.[0];
+    if (!file) return;
+    try {
+      const dataUrl = await readImageFileAsPngDataUrl(file, { maxPx: 96 });
+      setBudgetPdfIconDataUrl(dataUrl);
+      budgetPreview.src = dataUrl;
+      budgetPreview.classList.remove("hidden");
+      showToast("Ícone do PDF (ORC) atualizado.", { type: "success" });
+    } catch (err) {
+      showToast(err?.message || "Falha ao aplicar ícone do PDF.", { type: "error" });
+    } finally {
+      budgetIconInput.value = "";
+    }
+  });
+
+  // ----- Ambiente Dev -----
+  function askDevPassword() {
+    return new Promise((resolve) => {
+      let done = false;
+      const finish = (v) => {
+        if (done) return;
+        done = true;
+        resolve(Boolean(v));
+      };
+
+      const pass = el("input", {
+        type: "password",
+        placeholder: "Senha",
+        autocomplete: "current-password",
+        class:
+          "w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/20"
+      });
+
+      const content = el("div", { class: "space-y-2" }, [
+        el("div", { class: "text-sm text-slate-600" }, "Digite a senha para ativar o Ambiente Dev."),
+        pass
+      ]);
+
+      openModal({
+        title: "Ativar Ambiente Dev",
+        subtitle: "Requer senha",
+        content,
+        onClose: () => finish(false),
+        actions: [
+          { label: "Cancelar", onClick: () => finish(false) },
+          {
+            label: "Ativar",
+            autofocus: true,
+            className: "rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800",
+            onClick: () => {
+              if (String(pass.value || "") === "112233") return finish(true);
+              showToast("Senha incorreta.", { type: "error" });
+              pass.focus();
+              return false;
+            }
+          }
+        ]
+      });
+
+      requestAnimationFrame(() => pass.focus());
+    });
+  }
+
+  const devToggleBtn = el("button", {
+    type: "button",
+    class: "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+    title: "Ambiente Dev",
+    "aria-label": "Ambiente Dev"
+  });
+  const devKnob = el("span", { class: "inline-block h-5 w-5 transform rounded-full bg-white transition-transform" });
+  devToggleBtn.appendChild(devKnob);
+
+  const devStatus = el("div", { class: "text-xs font-semibold uppercase tracking-wider text-slate-500" }, "Desativado");
+  const devActionsHost = el("div");
+
+  async function resetDev() {
+    const ok = await confirmDialog({
+      title: "Reset Dev",
+      message:
+        "Isso vai limpar dados locais, notificações, estado anti-spam e tema (ícones). Útil quando algo ficou preso no cache/storage.",
+      confirmText: "Resetar agora",
+      danger: true
+    });
+    if (!ok) return;
+
+    // DB principal
+    hardResetDb();
+    // Notificações
+    clearAllNotifications();
+    // Estado anti-spam (periodicidade)
+    try {
+      localStorage.removeItem("dttv_due_notifications_v1");
+      localStorage.removeItem("dt" + "tz_due_notifications_v1");
+    } catch {
+      // ignore
+    }
+    // Tema
+    clearTheme();
+    applyTheme();
+    // Dev env off
+    setDevEnv(false);
+
+    // Limpa filtros de sessão que podem confundir em dev
+    try {
+      sessionStorage.removeItem("dttv_records_filters_v1");
+    } catch {
+      // ignore
+    }
+
+    emit(EVENTS.DATA_CHANGED);
+    showToast("Reset Dev concluído.", { type: "success" });
+  }
+
+  function syncDevUi() {
+    const on = isDevEnv();
+    devToggleBtn.classList.toggle("bg-emerald-600", on);
+    devToggleBtn.classList.toggle("bg-slate-200", !on);
+    devKnob.classList.toggle("translate-x-5", on);
+    devKnob.classList.toggle("translate-x-1", !on);
+    devStatus.textContent = on ? "Ativado" : "Desativado";
+
+    clear(devActionsHost);
+    if (on) {
+      devActionsHost.appendChild(
+        el("div", { class: "mt-3 flex flex-col gap-2 sm:flex-row sm:items-center" }, [
+          el(
+            "button",
+            {
+              type: "button",
+              class:
+                "inline-flex w-full items-center justify-center gap-2 rounded-lg bg-rose-600 px-3 py-2 text-sm font-semibold text-white hover:bg-rose-700 sm:w-auto",
+              onclick: resetDev
+            },
+            [el("i", { dataset: { lucide: "rotate-ccw" }, class: "h-4 w-4" }), "Reset Dev"]
+          ),
+          el(
+            "div",
+            { class: "text-xs text-slate-500" },
+            "Dica: use quando botões/estado não aparecem por cache/storage antigo."
+          )
+        ])
+      );
+      globalThis.lucide?.createIcons?.();
+    }
+  }
+
+  devToggleBtn.addEventListener("click", async () => {
+    const on = isDevEnv();
+    if (on) {
+      setDevEnv(false);
+      syncDevUi();
+      return;
+    }
+
+    const ok = await askDevPassword();
+    if (!ok) {
+      syncDevUi();
+      return;
+    }
+    setDevEnv(true);
+    syncDevUi();
+  });
+  syncDevUi();
+
   container.appendChild(
     el("div", { class: "space-y-4" }, [
       pageHeader({
-        title: "Backup (JSON)"
+        title: "Config"
       }),
       el("div", { class: "grid grid-cols-1 gap-3 md:grid-cols-2" }, [
         card([
@@ -145,6 +397,44 @@ export function renderBackup(container) {
           el("div", {}, [`Atualizado em: `, el("span", { class: "font-mono text-slate-700" }, meta.updatedAt)])
         ]),
         el("div", { class: "mt-4" }, resetBtn)
+      ]),
+      card([
+        el("div", { class: "text-sm font-semibold text-slate-900" }, "Tema"),
+        el("div", { class: "mt-1 text-sm text-slate-500" }, "Personalize o ícone do app e o ícone usado no PDF de ORC (PNG/JPG)."),
+
+        el("div", { class: "mt-3 grid grid-cols-1 gap-3 md:grid-cols-2" }, [
+          el("div", { class: "space-y-2" }, [
+            el("div", { class: "flex items-center justify-between gap-3" }, [
+              el("div", { class: "text-sm font-semibold text-slate-900" }, "Ícone do app"),
+              appPreview
+            ]),
+            appIconInput,
+            el("div", { class: "flex flex-col gap-2 sm:flex-row" }, [clearAppBtn])
+          ]),
+          el("div", { class: "space-y-2" }, [
+            el("div", { class: "flex items-center justify-between gap-3" }, [
+              el("div", { class: "text-sm font-semibold text-slate-900" }, "Ícone do PDF (ORC)"),
+              budgetPreview
+            ]),
+            budgetIconInput,
+            el("div", { class: "flex flex-col gap-2 sm:flex-row" }, [clearBudgetBtn])
+          ])
+        ])
+      ])
+      ,
+      card([
+        el("div", { class: "flex items-start justify-between gap-3" }, [
+          el("div", {}, [
+            el("div", { class: "text-sm font-semibold text-slate-900" }, "Ambiente Dev"),
+            el(
+              "div",
+              { class: "mt-1 text-sm text-slate-500" },
+              ""
+            )
+          ]),
+          el("div", { class: "shrink-0 text-right" }, [devStatus, el("div", { class: "mt-2 flex justify-end" }, [devToggleBtn])])
+        ]),
+        devActionsHost
       ])
     ])
   );

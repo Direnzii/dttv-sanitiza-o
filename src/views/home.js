@@ -118,15 +118,44 @@ export function renderHome(container) {
           ? el("div", { class: "mt-4 rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-600" }, [
               "Sem registros no período. Cadastre um serviço prestado para alimentar o dashboard."
             ])
-          : el("div", { class: "mt-4 overflow-hidden rounded-xl border border-slate-200" }, [
-              el("table", { class: "w-full text-left text-sm" }, [
+          : el("div", { class: "mt-4" }, [
+              // Mobile: lista/cartões (sem scroll lateral)
+              el("div", { class: "space-y-2 md:hidden" }, [
+                ...recent.map((r) =>
+                  el("div", { class: "rounded-2xl border border-slate-200 bg-white p-3" }, [
+                    el("div", { class: "flex items-start justify-between gap-3" }, [
+                      el("div", { class: "min-w-0" }, [
+                        el("div", { class: "truncate text-sm font-semibold text-slate-900" }, r.clientName || "—"),
+                        el("div", { class: "mt-1 text-xs text-slate-500" }, formatDateTime(r)),
+                        el(
+                          "div",
+                          { class: "mt-2 text-xs text-slate-600 line-clamp-2" },
+                          Array.isArray(r.items) ? r.items.map((it) => it.name).join(", ") : "—"
+                        ),
+                  el("div", { class: "mt-2" }, [
+                    el("div", { class: "text-xs font-semibold uppercase tracking-wider text-slate-500" }, "STATUS"),
+                    el("div", { class: "mt-1" }, statusCell(r))
+                  ])
+                      ]),
+                      el("div", { class: "shrink-0 text-right" }, [
+                        el("div", { class: "text-xs font-semibold uppercase tracking-wider text-slate-500" }, "Total"),
+                        el("div", { class: "mt-0.5 text-sm font-semibold text-slate-900" }, formatCurrencyBRL(r.total))
+                      ])
+                    ])
+                  ])
+                )
+              ]),
+
+              // Desktop: tabela
+              el("div", { class: "hidden overflow-hidden rounded-xl border border-slate-200 md:block" }, [
+                el("table", { class: "w-full text-left text-sm" }, [
                 el("thead", { class: "bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500" }, [
                   el("tr", {}, [
-                    el("th", { class: "px-3 py-2" }, "Data"),
-                    el("th", { class: "px-3 py-2" }, "Cliente"),
-                    el("th", { class: "px-3 py-2" }, "Serviços"),
-                    el("th", { class: "px-3 py-2" }, "Status"),
-                    el("th", { class: "px-3 py-2 text-right" }, "Total")
+                    el("th", { class: "px-3 py-2" }, "DATA"),
+                    el("th", { class: "px-3 py-2" }, "CLIENTE"),
+                    el("th", { class: "px-3 py-2" }, "SERVIÇOS"),
+                    el("th", { class: "px-3 py-2" }, "STATUS"),
+                    el("th", { class: "px-3 py-2 text-right" }, "TOTAL")
                   ])
                 ]),
                 el("tbody", { class: "divide-y divide-slate-200 bg-white" }, [
@@ -143,6 +172,7 @@ export function renderHome(container) {
                       el("td", { class: "px-3 py-2 text-right font-semibold text-slate-900" }, formatCurrencyBRL(r.total))
                     ])
                   )
+                ])
                 ])
               ])
             ])
@@ -209,8 +239,9 @@ export function renderHome(container) {
     } else {
       // garante valores coerentes ao entrar no personalizado
       if (!state.to) state.to = todayISO();
+      if (!state.from) state.from = state.to; // default: hoje → hoje
       inputTo.value = state.to;
-      inputFrom.value = state.from || "";
+      inputFrom.value = state.from || state.to;
     }
   }
 

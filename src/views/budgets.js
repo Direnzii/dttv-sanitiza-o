@@ -9,10 +9,14 @@ import {
   updateBudget
 } from "../db.js";
 import { EVENTS, emit } from "../state.js";
-import { formatCurrencyBRL, formatDateBR, todayISO, toNumber } from "../utils.js";
+import { formatCurrencyBRL, formatDateBR, normalizeText, todayISO, toNumber } from "../utils.js";
 import { card, clear, el, emptyState, pageHeader, textarea } from "../ui/components.js";
+import { openActionsModal } from "../ui/actions.js";
 import { confirmDialog, openModal } from "../ui/modal.js";
 import { showToast } from "../ui/toast.js";
+import { getTheme } from "../theme.js";
+import { isDevEnv } from "../env.js";
+import { mockBudgetInitial } from "../mock.js";
 
 function safeFilename(name) {
   return String(name || "orcamento")
@@ -56,7 +60,23 @@ function generateBudgetPdf(budget) {
   doc.text("ORÇAMENTO", margin, 16);
   doc.setFontSize(10);
   doc.setFont("helvetica", "normal");
-  doc.text(issuer, pageW - margin, 16, { align: "right" });
+
+  // Ícone do PDF (opcional) configurável em Config > Tema
+  let issuerX = pageW - margin;
+  try {
+    const { budgetPdfIconDataUrl } = getTheme();
+    if (budgetPdfIconDataUrl) {
+      const iconSize = 10; // mm
+      const x = pageW - margin - iconSize;
+      const y = 6.5;
+      doc.addImage(budgetPdfIconDataUrl, "PNG", x, y, iconSize, iconSize, undefined, "FAST");
+      issuerX = x - 2; // deixa espaço para não colidir com o ícone
+    }
+  } catch {
+    // ignore (não deixa o PDF falhar por causa do ícone)
+  }
+
+  doc.text(issuer, issuerX, 16, { align: "right" });
 
   doc.setTextColor(15, 23, 42);
 
@@ -147,9 +167,11 @@ function generateBudgetPdf(budget) {
   doc.text("Subtotal", margin, y);
   doc.text(currency(subtotal), pageW - margin, y, { align: "right" });
   y += 6;
-  doc.text("Desconto", margin, y);
-  doc.text(currency(discount), pageW - margin, y, { align: "right" });
-  y += 6;
+  if (toNumber(discount, 0) > 0) {
+    doc.text("Desconto", margin, y);
+    doc.text(currency(discount), pageW - margin, y, { align: "right" });
+    y += 6;
+  }
   doc.setFont("helvetica", "bold");
   doc.setFontSize(12);
   doc.text("Total", margin, y);
@@ -190,6 +212,7 @@ function budgetForm({ initial = null, onSave }) {
     "select",
     {
       name: "clientId",
+      required: "true",
       class:
         "w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/20"
     },
@@ -201,11 +224,35 @@ function budgetForm({ initial = null, onSave }) {
     Array.isArray(initial?.items) ? initial.items.map((it) => it.serviceId).filter(Boolean) : []
   );
 
+  const servicesSearch = el("input", {
+    type: "search",
+    placeholder: "Buscar serviço...",
+    class:
+      "w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/20"
+  });
+
   const servicesBox = el("div", { class: "max-h-56 overflow-auto rounded-xl border border-slate-200 bg-white p-2" });
-  if (services.length === 0) {
-    servicesBox.appendChild(el("div", { class: "p-3 text-sm text-slate-600" }, "Cadastre serviços antes de criar um orçamento."));
-  } else {
-    for (const s of services) {
+  const servicesIndex = services.map((s) => ({
+    svc: s,
+    hay: normalizeText(`${s.name} ${s.detail || ""}`)
+  }));
+
+  function renderServicesList() {
+    clear(servicesBox);
+    if (services.length === 0) {
+      servicesBox.appendChild(el("div", { class: "p-3 text-sm text-slate-600" }, "Cadastre serviços antes de criar um orçamento."));
+      return;
+    }
+
+    const q = normalizeText(servicesSearch.value);
+    const filtered = q ? servicesIndex.filter((x) => x.hay.includes(q)).map((x) => x.svc) : services;
+
+    if (filtered.length === 0) {
+      servicesBox.appendChild(el("div", { class: "p-3 text-sm text-slate-600" }, "Nenhum serviço encontrado para esta busca."));
+      return;
+    }
+
+    for (const s of filtered) {
       const id = `bsvc_${s.id}`;
       const row = el("label", { for: id, class: "flex cursor-pointer items-start gap-3 rounded-xl p-2 hover:bg-slate-50" }, [
         el("input", {
@@ -223,9 +270,16 @@ function budgetForm({ initial = null, onSave }) {
       ]);
       const cb = row.querySelector("input");
       cb.checked = selectedIds.has(s.id);
+      cb.addEventListener("change", () => {
+        if (cb.checked) selectedIds.add(s.id);
+        else selectedIds.delete(s.id);
+      });
       servicesBox.appendChild(row);
     }
   }
+
+  servicesSearch.addEventListener("input", renderServicesList);
+  renderServicesList();
 
   const discount = el("input", {
     type: "text",
@@ -240,8 +294,9 @@ function budgetForm({ initial = null, onSave }) {
     type: "number",
     name: "validityDays",
     value: initial?.validityDays ?? 7,
-    min: "0",
+    min: "1",
     step: "1",
+    required: "true",
     class:
       "w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/20"
   });
@@ -256,6 +311,7 @@ function budgetForm({ initial = null, onSave }) {
 
   form.appendChild(el("div", { class: "space-y-1" }, [
     el("div", { class: "text-xs font-semibold uppercase tracking-wider text-slate-500" }, "Serviços (1+ obrigatório)"),
+    services.length ? el("div", { class: "mt-1" }, servicesSearch) : null,
     servicesBox
   ]));
 
@@ -272,11 +328,40 @@ function budgetForm({ initial = null, onSave }) {
 
   form.appendChild(notes);
 
+  // Fallback para browsers sem `requestSubmit()`: um submit hidden.
+  const hiddenSubmit = el("button", { type: "submit", class: "hidden", dataset: { hiddenSubmit: "1" } }, "submit");
+  form.appendChild(hiddenSubmit);
+
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const serviceIds = Array.from(form.querySelectorAll('input[name="serviceId"]:checked')).map((x) => x.value);
+    const clientId = String(client.value || "").trim();
+    const serviceIds = Array.from(selectedIds);
+
+    if (!clientId) {
+      showToast("Campo obrigatório: selecione um cliente.", { type: "warning" });
+      client.focus?.();
+      return;
+    }
+    if (serviceIds.length === 0) {
+      showToast("Campo obrigatório: selecione pelo menos 1 serviço.", { type: "warning" });
+      return;
+    }
+
+    const vdRaw = String(validityDays.value ?? "").trim();
+    if (!vdRaw) {
+      showToast("Campo obrigatório: informe a validade (dias).", { type: "warning" });
+      validityDays.focus?.();
+      return;
+    }
+    const vd = Number(vdRaw);
+    if (!Number.isFinite(vd) || vd < 1) {
+      showToast("Validade inválida: use 1 dia ou mais.", { type: "warning" });
+      validityDays.focus?.();
+      return;
+    }
+
     const payload = {
-      clientId: client.value,
+      clientId,
       serviceIds,
       discount: discount.value,
       validityDays: validityDays.value,
@@ -289,7 +374,14 @@ function budgetForm({ initial = null, onSave }) {
     }
   });
 
-  return { form, canSubmit: () => services.length > 0 && clients.length > 0 };
+  return {
+    form,
+    canSubmit: () => services.length > 0 && clients.length > 0,
+    submitSafely: () => {
+      if (typeof form.requestSubmit === "function") form.requestSubmit();
+      else form.querySelector('button[type="submit"][data-hidden-submit="1"]')?.click();
+    }
+  };
 }
 
 export function renderBudgets(container) {
@@ -308,9 +400,9 @@ export function renderBudgets(container) {
     renderList();
   };
 
-  function openCreate() {
-    const { form, canSubmit } = budgetForm({
-      initial: null,
+  function openCreate(initial = null) {
+    const { form, canSubmit, submitSafely } = budgetForm({
+      initial,
       onSave: async (payload) => {
         createBudget(payload);
         emit(EVENTS.DATA_CHANGED);
@@ -321,7 +413,7 @@ export function renderBudgets(container) {
 
     const modal = openModal({
       title: "Novo orçamento",
-      subtitle: "Vincule 1 cliente a N serviços e gere um PDF profissional.",
+      subtitle: "",
       content: form,
       actions: [
         { label: "Fechar" },
@@ -333,7 +425,7 @@ export function renderBudgets(container) {
               showToast("Cadastre ao menos 1 cliente e 1 serviço antes.", { type: "warning" });
               return false;
             }
-            form.requestSubmit();
+            submitSafely();
             return false;
           }
         }
@@ -342,7 +434,7 @@ export function renderBudgets(container) {
   }
 
   function openEdit(budget) {
-    const { form } = budgetForm({
+    const { form, submitSafely } = budgetForm({
       initial: budget,
       onSave: async (payload) => {
         updateBudget(budget.id, payload);
@@ -362,7 +454,7 @@ export function renderBudgets(container) {
           label: "Salvar alterações",
           className: "rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800",
           onClick: () => {
-            form.requestSubmit();
+            submitSafely();
             return false;
           }
         }
@@ -419,9 +511,6 @@ export function renderBudgets(container) {
             time
           ])
         ]),
-        el("div", { class: "rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600" }, [
-          "Isso ajuda no histórico. Você poderá ajustar depois na Agenda se quiser."
-        ])
       ]),
       actions: [
         { label: "Cancelar" },
@@ -442,6 +531,31 @@ export function renderBudgets(container) {
             }
           }
         }
+      ]
+    });
+  }
+
+  function openActions(budget) {
+    openActionsModal({
+      title: budget.code ? `ORC ${budget.code}` : "ORC",
+      subtitle: budget.clientName ? String(budget.clientName) : "",
+      actions: [
+        {
+          label: "Gerar PDF",
+          icon: "file-down",
+          variant: "primary",
+          onClick: () => {
+            try {
+              generateBudgetPdf(budget);
+              showToast("PDF gerado.", { type: "success" });
+            } catch (err) {
+              showToast(err?.message || "Falha ao gerar PDF.", { type: "error" });
+            }
+          }
+        },
+        { label: "Converter para Agenda", icon: "arrow-right-left", onClick: () => onConvertToRecord(budget) },
+        { label: "Editar", icon: "pencil", onClick: () => openEdit(budget) },
+        { label: "Excluir", icon: "trash-2", variant: "danger", onClick: () => onDelete(budget) }
       ]
     });
   }
@@ -492,55 +606,18 @@ export function renderBudgets(container) {
                   el("td", { class: "px-3 py-2 hidden md:table-cell text-slate-700" }, formatDateBR(b.createdAt?.slice(0, 10) || "")),
                   el("td", { class: "px-3 py-2 text-right font-semibold text-slate-900" }, formatCurrencyBRL(b.total)),
                   el("td", { class: "px-3 py-2" }, [
-                    el("div", { class: "flex flex-wrap items-center justify-end gap-2" }, [
-                      el(
-                        "button",
-                        {
-                          type: "button",
-                          class:
-                            "inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white shadow-soft hover:bg-slate-800",
-                          onclick: () => {
-                            try {
-                              generateBudgetPdf(b);
-                              showToast("PDF gerado.", { type: "success" });
-                            } catch (err) {
-                              showToast(err?.message || "Falha ao gerar PDF.", { type: "error" });
-                            }
-                          }
-                        },
-                        [el("i", { dataset: { lucide: "file-down" }, class: "h-4 w-4" }), "PDF"]
-                      ),
-                      el(
-                        "button",
-                        {
-                          type: "button",
-                          class:
-                            "inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100",
-                          onclick: () => onConvertToRecord(b)
-                        },
-                        [el("i", { dataset: { lucide: "arrow-right-left" }, class: "h-4 w-4" }), "Agenda"]
-                      ),
-                      el(
-                        "button",
-                        {
-                          type: "button",
-                          class:
-                            "inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100",
-                          onclick: () => openEdit(b)
-                        },
-                        [el("i", { dataset: { lucide: "pencil" }, class: "h-4 w-4" }), "Editar"]
-                      ),
-                      el(
-                        "button",
-                        {
-                          type: "button",
-                          class:
-                            "inline-flex items-center gap-2 rounded-lg bg-rose-600 px-3 py-2 text-sm font-semibold text-white hover:bg-rose-700",
-                          onclick: () => onDelete(b)
-                        },
-                        [el("i", { dataset: { lucide: "trash-2" }, class: "h-4 w-4" }), "Excluir"]
-                      )
-                    ])
+                    el(
+                      "button",
+                      {
+                        type: "button",
+                        class:
+                          "inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white p-2 text-sm font-semibold text-slate-700 hover:bg-slate-100",
+                        title: "Ações",
+                        "aria-label": "Ações",
+                        onclick: () => openActions(b)
+                      },
+                      [el("i", { dataset: { lucide: "more-vertical" }, class: "h-5 w-5" })]
+                    )
                   ])
                 ])
               )
@@ -561,17 +638,37 @@ export function renderBudgets(container) {
       {
         type: "button",
         class:
-          "inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100",
+          "inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 sm:w-auto",
         onclick: applyFilters
       },
       [el("i", { dataset: { lucide: "filter" }, class: "h-4 w-4" }), "Filtrar"]
     ),
+    isDevEnv()
+      ? el(
+          "button",
+          {
+            type: "button",
+            class:
+              "inline-flex w-full items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100 sm:w-auto",
+            onclick: () => {
+              const clients = listClients();
+              const services = listServices();
+              if (clients.length === 0 || services.length === 0) {
+                showToast("Para criar mock no ORC, cadastre ao menos 1 cliente e 1 serviço.", { type: "warning" });
+                return;
+              }
+              openCreate(mockBudgetInitial({ clients, services }));
+            }
+          },
+          [el("i", { dataset: { lucide: "sparkles" }, class: "h-4 w-4" }), "Criar Mock"]
+        )
+      : null,
     el(
       "button",
       {
         type: "button",
         class:
-          "inline-flex items-center justify-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white shadow-soft hover:bg-slate-800",
+          "inline-flex w-full items-center justify-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white shadow-soft hover:bg-slate-800 sm:w-auto",
         onclick: openCreate
       },
       [el("i", { dataset: { lucide: "plus" }, class: "h-4 w-4" }), "Novo"]
@@ -580,7 +677,7 @@ export function renderBudgets(container) {
 
   container.appendChild(
     el("div", { class: "space-y-4" }, [
-      pageHeader({ title: "Orçamentos & PDF", right }),
+      pageHeader({ title: "ORC", right }),
       listHost
     ])
   );
