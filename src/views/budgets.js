@@ -9,7 +9,7 @@ import {
   updateBudget
 } from "../db.js";
 import { EVENTS, emit } from "../state.js";
-import { formatCurrencyBRL, formatDateBR, normalizeText, todayISO, toNumber } from "../utils.js";
+import { brDateToISO, attachBRDateMask, formatCurrencyBRL, formatDateBR, isoToBRDate, normalizeText, todayISO, toNumber } from "../utils.js";
 import { card, clear, el, emptyState, pageHeader, textarea } from "../ui/components.js";
 import { openActionsModal } from "../ui/actions.js";
 import { confirmDialog, openModal } from "../ui/modal.js";
@@ -140,8 +140,10 @@ function generateBudgetPdf(budget) {
       doc.addPage();
       y = margin;
     }
+    const qty = Math.max(1, Math.floor(Number(it.qty || 1)));
+    const label = qty > 1 ? `${qty}x ${String(it.name || "Serviço")}` : String(it.name || "Serviço");
     doc.setFont("helvetica", "bold");
-    doc.text(String(it.name || "Serviço"), margin, y);
+    doc.text(label, margin, y);
     doc.text(currency(it.cost), pageW - margin, y, { align: "right" });
     y += 5;
 
@@ -223,6 +225,13 @@ function budgetForm({ initial = null, onSave }) {
   const selectedIds = new Set(
     Array.isArray(initial?.items) ? initial.items.map((it) => it.serviceId).filter(Boolean) : []
   );
+  const qtyById = new Map(
+    Array.isArray(initial?.items)
+      ? initial.items
+          .map((it) => [String(it.serviceId || ""), Math.max(1, Math.floor(Number(it.qty || 1)))])
+          .filter((x) => x[0])
+      : []
+  );
 
   const servicesSearch = el("input", {
     type: "search",
@@ -254,7 +263,7 @@ function budgetForm({ initial = null, onSave }) {
 
     for (const s of filtered) {
       const id = `bsvc_${s.id}`;
-      const row = el("label", { for: id, class: "flex cursor-pointer items-start gap-3 rounded-xl p-2 hover:bg-slate-50" }, [
+      const row = el("div", { class: "flex items-start gap-3 rounded-xl p-2 hover:bg-slate-50" }, [
         el("input", {
           id,
           type: "checkbox",
@@ -262,17 +271,43 @@ function budgetForm({ initial = null, onSave }) {
           value: s.id,
           class: "mt-1 h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900/20"
         }),
-        el("div", { class: "min-w-0" }, [
+        el("label", { for: id, class: "min-w-0 flex-1 cursor-pointer" }, [
           el("div", { class: "truncate text-sm font-semibold text-slate-900" }, s.name),
           el("div", { class: "mt-0.5 text-xs text-slate-500" }, s.detail ? s.detail : "Sem detalhe"),
           el("div", { class: "mt-1 text-xs font-semibold text-slate-700" }, formatCurrencyBRL(s.totalCost))
+        ]),
+        el("div", { class: "shrink-0 w-20" }, [
+          el("input", {
+            type: "number",
+            min: "1",
+            step: "1",
+            value: String(qtyById.get(s.id) || 1),
+            class:
+              "w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-900 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/20",
+            disabled: "true"
+          })
         ])
       ]);
-      const cb = row.querySelector("input");
+      const cb = row.querySelector(`input[type="checkbox"]`);
+      const qtyInput = row.querySelector(`input[type="number"]`);
       cb.checked = selectedIds.has(s.id);
+      if (cb.checked) qtyInput.removeAttribute("disabled");
       cb.addEventListener("change", () => {
-        if (cb.checked) selectedIds.add(s.id);
-        else selectedIds.delete(s.id);
+        if (cb.checked) {
+          selectedIds.add(s.id);
+          qtyInput.removeAttribute("disabled");
+          qtyById.set(s.id, Math.max(1, Math.floor(Number(qtyInput.value || 1))));
+        } else {
+          selectedIds.delete(s.id);
+          qtyInput.value = "1";
+          qtyInput.setAttribute("disabled", "true");
+          qtyById.delete(s.id);
+        }
+      });
+      qtyInput.addEventListener("change", () => {
+        const v = Math.max(1, Math.floor(Number(qtyInput.value || 1)));
+        qtyInput.value = String(v);
+        if (cb.checked) qtyById.set(s.id, v);
       });
       servicesBox.appendChild(row);
     }
@@ -335,7 +370,7 @@ function budgetForm({ initial = null, onSave }) {
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const clientId = String(client.value || "").trim();
-    const serviceIds = Array.from(selectedIds);
+    const serviceIds = Array.from(selectedIds).map((id) => ({ serviceId: id, qty: qtyById.get(id) || 1 }));
 
     if (!clientId) {
       showToast("Campo obrigatório: selecione um cliente.", { type: "warning" });
@@ -485,11 +520,14 @@ export function renderBudgets(container) {
     const defaultTime = now.toTimeString().slice(0, 5);
 
     const date = el("input", {
-      type: "date",
-      value: defaultDate,
+      type: "text",
+      inputmode: "numeric",
+      placeholder: "DD/MM/AAAA",
+      value: isoToBRDate(defaultDate),
       class:
         "w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/20"
     });
+    attachBRDateMask(date);
     const time = el("input", {
       type: "time",
       value: defaultTime,
@@ -520,7 +558,12 @@ export function renderBudgets(container) {
           className: "rounded-lg bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800",
           onClick: () => {
             try {
-              const dateISO = String(date.value || defaultDate).slice(0, 10);
+              const dateISO = brDateToISO(date.value) || defaultDate;
+              if (!dateISO) {
+                showToast("Data inválida. Use DD/MM/AAAA.", { type: "warning" });
+                date.focus?.();
+                return false;
+              }
               const timeHM = String(time.value || defaultTime).slice(0, 5);
               createRecordFromBudget(budget.id, { dateISO, timeHM });
               emit(EVENTS.DATA_CHANGED);

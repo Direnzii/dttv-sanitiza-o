@@ -49,6 +49,42 @@ export function formatDateBR(dateISO) {
   return d.toLocaleDateString("pt-BR");
 }
 
+export function isoToBRDate(iso) {
+  const d = String(iso || "").slice(0, 10);
+  const m = d.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return "";
+  return `${m[3]}/${m[2]}/${m[1]}`;
+}
+
+export function brDateToISO(br) {
+  const s = String(br || "").trim();
+  const m = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (!m) return "";
+  const dd = Number(m[1]);
+  const mm = Number(m[2]);
+  const yyyy = Number(m[3]);
+  if (!Number.isInteger(dd) || !Number.isInteger(mm) || !Number.isInteger(yyyy)) return "";
+  if (yyyy < 1900 || yyyy > 2100) return "";
+  if (mm < 1 || mm > 12) return "";
+  const lastDay = new Date(yyyy, mm, 0).getDate();
+  if (dd < 1 || dd > lastDay) return "";
+  return `${String(yyyy).padStart(4, "0")}-${String(mm).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
+}
+
+export function attachBRDateMask(inputEl) {
+  if (!(inputEl instanceof HTMLInputElement)) return;
+  inputEl.addEventListener("input", () => {
+    const digits = String(inputEl.value || "").replace(/\D+/g, "").slice(0, 8);
+    const dd = digits.slice(0, 2);
+    const mm = digits.slice(2, 4);
+    const yyyy = digits.slice(4, 8);
+    let out = dd;
+    if (mm) out += `/${mm}`;
+    if (yyyy) out += `/${yyyy}`;
+    if (out !== inputEl.value) inputEl.value = out;
+  });
+}
+
 export function normalizeText(s) {
   return String(s ?? "")
     .trim()

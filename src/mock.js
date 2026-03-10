@@ -92,7 +92,7 @@ export function mockRecordInitial({ clients, services } = {}) {
     dateISO,
     timeHM,
     clientId: c?.id || "",
-    status: chance(0.35) ? "FEITO" : "APROVADO",
+    status: chance(0.25) ? "CONCLUIDO" : chance(0.5) ? "AGENDADO" : "PEND. DE PAGAMENTO",
     notes: chance(0.5) ? "" : "Mock gerado no Ambiente Dev.",
     items: chosen.map((s) => ({ serviceId: s?.id }))
   };

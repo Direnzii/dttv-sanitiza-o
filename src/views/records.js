@@ -1,6 +1,6 @@
 import { createRecord, deleteRecord, getClientById, listClients, listRecords, listServices, updateRecord } from "../db.js";
 import { EVENTS, emit } from "../state.js";
-import { formatCurrencyBRL, formatDateBR, normalizeText, openExternal, todayISO } from "../utils.js";
+import { brDateToISO, attachBRDateMask, formatCurrencyBRL, formatDateBR, isoToBRDate, normalizeText, openExternal, todayISO } from "../utils.js";
 import { card, clear, el, emptyState, pageHeader, textarea } from "../ui/components.js";
 import { openActionsModal } from "../ui/actions.js";
 import { confirmDialog, openModal } from "../ui/modal.js";
@@ -9,8 +9,7 @@ import { formatDateTime, statusBadgeClass, statusCell } from "../ui/recordUi.js"
 import { isDevEnv } from "../env.js";
 import { mockRecordInitial } from "../mock.js";
 
-const STATUSES = ["APROVADO", "FEITO", "RECUSADO", "CANCELADO"];
-const NEEDS_REASON = new Set(["RECUSADO", "CANCELADO"]);
+const STATUSES = ["AGENDADO", "PEND. DE PAGAMENTO", "CONCLUIDO"];
 
 function mapUrlFromLocation(location) {
   const q = String(location || "").trim();
@@ -19,22 +18,12 @@ function mapUrlFromLocation(location) {
 }
 
 async function applyStatusChange(record, nextStatus) {
-  const oldStatus = String(record?.status || "APROVADO").toUpperCase();
-  const ns = String(nextStatus || "APROVADO").toUpperCase();
+  const oldStatus = String(record?.status || "AGENDADO").toUpperCase();
+  const ns = String(nextStatus || "AGENDADO").toUpperCase();
   if (ns === oldStatus) return true;
 
-  /** @type {{status: string, statusReason?: string}} */
+  /** @type {{status: string}} */
   const patch = { status: ns };
-
-  if (NEEDS_REASON.has(ns)) {
-    // motivo é obrigatório ao entrar em RECUSADO/CANCELADO (pode ser vazio, mas exige confirmação)
-    const reason = await askReasonModal({ statusLabel: ns });
-    if (reason === null) return false;
-    patch.statusReason = reason;
-  } else if (NEEDS_REASON.has(oldStatus)) {
-    // saindo de um estado com motivo → limpa
-    patch.statusReason = "";
-  }
 
   try {
     updateRecord(record.id, patch);
@@ -47,20 +36,21 @@ async function applyStatusChange(record, nextStatus) {
   }
 }
 
-function askReasonModal({ statusLabel }) {
+function askObservationModal({ title = "Observação", initialValue = "" } = {}) {
   return new Promise((resolve) => {
     const ta = el("textarea", {
       rows: "4",
-      placeholder: "Descreva o motivo (opcional)...",
+      placeholder: "Escreva uma observação (opcional)...",
       class:
         "w-full resize-y rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/20"
     });
+    ta.value = String(initialValue || "");
 
     openModal({
-      title: `Motivo para ${statusLabel}`,
-      subtitle: "Pode ser vazio, mas precisamos registrar que você confirmou o motivo.",
+      title,
+      subtitle: "Opcional. Fica registrado no status deste agendamento.",
       content: el("div", { class: "space-y-2" }, [
-        el("div", { class: "text-sm text-slate-600" }, "Informe o motivo abaixo:"),
+        el("div", { class: "text-sm text-slate-600" }, "Informe a observação abaixo:"),
         ta
       ]),
       actions: [
@@ -86,12 +76,15 @@ function recordForm({ initial = null, onSave }) {
   const form = el("form", { class: "space-y-3" });
 
   const date = el("input", {
-    type: "date",
-    name: "dateISO",
-    value: initial?.dateISO || todayISO(),
+    type: "text",
+    inputmode: "numeric",
+    placeholder: "DD/MM/AAAA",
+    name: "dateBR",
+    value: isoToBRDate(initial?.dateISO || todayISO()),
     class:
       "w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/20"
   });
+  attachBRDateMask(date);
 
   const time = el("input", {
     type: "time",
@@ -118,6 +111,13 @@ function recordForm({ initial = null, onSave }) {
 
   const selectedIds = new Set(
     Array.isArray(initial?.items) ? initial.items.map((it) => it.serviceId).filter(Boolean) : []
+  );
+  const qtyById = new Map(
+    Array.isArray(initial?.items)
+      ? initial.items
+          .map((it) => [String(it.serviceId || ""), Math.max(1, Math.floor(Number(it.qty || 1)))])
+          .filter((x) => x[0])
+      : []
   );
 
   const servicesSearch = el("input", {
@@ -150,7 +150,7 @@ function recordForm({ initial = null, onSave }) {
 
     for (const s of filtered) {
       const id = `svc_${s.id}`;
-      const row = el("label", { for: id, class: "flex cursor-pointer items-start gap-3 rounded-xl p-2 hover:bg-slate-50" }, [
+      const row = el("div", { class: "flex items-start gap-3 rounded-xl p-2 hover:bg-slate-50" }, [
         el("input", {
           id,
           type: "checkbox",
@@ -158,17 +158,45 @@ function recordForm({ initial = null, onSave }) {
           value: s.id,
           class: "mt-1 h-4 w-4 rounded border-slate-300 text-slate-900 focus:ring-slate-900/20"
         }),
-        el("div", { class: "min-w-0" }, [
+        el("label", { for: id, class: "min-w-0 flex-1 cursor-pointer" }, [
           el("div", { class: "truncate text-sm font-semibold text-slate-900" }, s.name),
           el("div", { class: "mt-0.5 text-xs text-slate-500" }, s.detail ? s.detail : "Sem detalhe"),
           el("div", { class: "mt-1 text-xs font-semibold text-slate-700" }, formatCurrencyBRL(s.totalCost))
+        ]),
+        el("div", { class: "shrink-0 w-20" }, [
+          el("input", {
+            type: "number",
+            min: "1",
+            step: "1",
+            value: String(qtyById.get(s.id) || 1),
+            class:
+              "w-full rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-sm text-slate-900 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/20",
+            disabled: "true"
+          })
         ])
       ]);
-      const cb = row.querySelector("input");
+      const cb = row.querySelector(`input[type="checkbox"]`);
+      const qtyInput = row.querySelector(`input[type="number"]`);
       cb.checked = selectedIds.has(s.id);
+      if (cb.checked) {
+        qtyInput.removeAttribute("disabled");
+      }
       cb.addEventListener("change", () => {
-        if (cb.checked) selectedIds.add(s.id);
-        else selectedIds.delete(s.id);
+        if (cb.checked) {
+          selectedIds.add(s.id);
+          qtyInput.removeAttribute("disabled");
+          qtyById.set(s.id, Math.max(1, Math.floor(Number(qtyInput.value || 1))));
+        } else {
+          selectedIds.delete(s.id);
+          qtyInput.value = "1";
+          qtyInput.setAttribute("disabled", "true");
+          qtyById.delete(s.id);
+        }
+      });
+      qtyInput.addEventListener("change", () => {
+        const v = Math.max(1, Math.floor(Number(qtyInput.value || 1)));
+        qtyInput.value = String(v);
+        if (cb.checked) qtyById.set(s.id, v);
       });
       servicesBox.appendChild(row);
     }
@@ -189,7 +217,16 @@ function recordForm({ initial = null, onSave }) {
     },
     STATUSES.map((s) => el("option", { value: s }, s))
   );
-  status.value = String(initial?.status || "APROVADO").toUpperCase();
+  status.value = String(initial?.status || "AGENDADO").toUpperCase();
+
+  const obs = textarea({
+    label: "Observação (status)",
+    name: "statusReason",
+    value: initial?.statusReason || "",
+    placeholder: "Opcional...",
+    rows: 3
+  });
+  obs.querySelector("textarea").name = "statusReason";
 
   form.appendChild(el("div", { class: "grid grid-cols-1 gap-3 sm:grid-cols-3" }, [
     el("div", { class: "space-y-1" }, [
@@ -206,9 +243,12 @@ function recordForm({ initial = null, onSave }) {
     ])
   ]));
 
-  form.appendChild(el("div", { class: "space-y-1" }, [
-    el("div", { class: "text-xs font-semibold uppercase tracking-wider text-slate-500" }, "Status"),
-    status
+  form.appendChild(el("div", { class: "grid grid-cols-1 gap-3 sm:grid-cols-2" }, [
+    el("div", { class: "space-y-1" }, [
+      el("div", { class: "text-xs font-semibold uppercase tracking-wider text-slate-500" }, "Status"),
+      status
+    ]),
+    obs
   ]));
 
   form.appendChild(el("div", { class: "space-y-1" }, [
@@ -221,27 +261,23 @@ function recordForm({ initial = null, onSave }) {
 
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
-    const serviceIds = Array.from(selectedIds);
-    const oldStatus = String(initial?.status || "").toUpperCase();
-    const nextStatus = String(status.value || "APROVADO").toUpperCase();
-
-    let statusReasonPatch;
-    if (NEEDS_REASON.has(nextStatus) && nextStatus !== oldStatus) {
-      const reason = await askReasonModal({ statusLabel: nextStatus });
-      if (reason === null) return; // usuário cancelou
-      statusReasonPatch = reason; // pode ser vazio
-    } else if (!NEEDS_REASON.has(nextStatus) && NEEDS_REASON.has(oldStatus)) {
-      statusReasonPatch = ""; // limpando motivo ao sair de RECUSADO/CANCELADO
+    const dateISO = brDateToISO(date.value);
+    if (!dateISO) {
+      showToast("Data inválida. Use DD/MM/AAAA.", { type: "warning" });
+      date.focus?.();
+      return;
     }
+    const serviceIds = Array.from(selectedIds).map((id) => ({ serviceId: id, qty: qtyById.get(id) || 1 }));
+    const nextStatus = String(status.value || "AGENDADO").toUpperCase();
 
     const payload = {
-      dateISO: date.value,
+      dateISO,
       timeHM: time.value,
       clientId: client.value,
       serviceIds,
       notes: form.querySelector('textarea[name="notes"]')?.value || "",
       status: nextStatus,
-      ...(statusReasonPatch !== undefined ? { statusReason: statusReasonPatch } : {})
+      statusReason: form.querySelector('textarea[name="statusReason"]')?.value || ""
     };
     try {
       await onSave(payload);
@@ -295,30 +331,48 @@ export function renderRecords(container) {
   });
 
   const from = el("input", {
-    type: "date",
+    type: "text",
+    inputmode: "numeric",
+    placeholder: "DD/MM/AAAA",
     class:
       "w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/20"
   });
   const to = el("input", {
-    type: "date",
-    value: state.to,
+    type: "text",
+    inputmode: "numeric",
+    placeholder: "DD/MM/AAAA",
+    value: isoToBRDate(state.to),
     class:
       "w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/20"
   });
+  attachBRDateMask(from);
+  attachBRDateMask(to);
 
   // Restaura filtro quando a view é re-renderizada (ex.: após salvar edição).
   loadFilters();
   q.value = state.q;
-  from.value = state.from;
-  to.value = state.to;
-  // Se não tiver filtro salvo (ou vier vazio), não deixa o campo de data vazio (fica feio).
-  if (!from.value) from.value = todayISO();
-  if (!to.value) to.value = todayISO();
+  from.value = isoToBRDate(state.from);
+  to.value = isoToBRDate(state.to);
+  // Se não tiver filtro salvo (ou vier vazio), não deixa a data vazia.
+  if (!from.value) from.value = isoToBRDate(todayISO());
+  if (!to.value) to.value = isoToBRDate(todayISO());
 
   const applyFilters = () => {
     state.q = q.value;
-    state.from = from.value;
-    state.to = to.value || todayISO();
+    const fromISO = brDateToISO(from.value);
+    const toISO = brDateToISO(to.value);
+    if (from.value && !fromISO) {
+      showToast("Data 'De' inválida. Use DD/MM/AAAA.", { type: "warning" });
+      from.focus?.();
+      return;
+    }
+    if (to.value && !toISO) {
+      showToast("Data 'Até' inválida. Use DD/MM/AAAA.", { type: "warning" });
+      to.focus?.();
+      return;
+    }
+    state.from = fromISO;
+    state.to = toISO || todayISO();
     saveFilters();
     renderList();
   };
@@ -413,7 +467,7 @@ export function renderRecords(container) {
 
     const content = el("div", { class: "grid grid-cols-2 gap-2" }, [
       ...STATUSES.map((s) => {
-        const isActive = String(record?.status || "APROVADO").toUpperCase() === s;
+        const isActive = String(record?.status || "AGENDADO").toUpperCase() === s;
         return el(
           "button",
           {
@@ -434,7 +488,33 @@ export function renderRecords(container) {
     modal = openModal({
       title: "Alterar status",
       subtitle: `${record?.clientName || "—"} • ${formatDateTime(record)}`,
-      content,
+      content: el("div", { class: "space-y-3" }, [
+        content,
+        el(
+          "button",
+          {
+            type: "button",
+            class:
+              "w-full inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100",
+            onclick: async () => {
+              const next = await askObservationModal({
+                title: "Observação do status",
+                initialValue: String(record?.statusReason || "")
+              });
+              if (next === null) return;
+              try {
+                updateRecord(record.id, { statusReason: next });
+                emit(EVENTS.DATA_CHANGED);
+                showToast("Observação atualizada.", { type: "success" });
+                modal?.close?.();
+              } catch (err) {
+                showToast(err?.message || "Falha ao atualizar observação.", { type: "error" });
+              }
+            }
+          },
+          [el("i", { dataset: { lucide: "message-square" }, class: "h-4 w-4" }), "Adicionar/editar observação"]
+        )
+      ]),
       actions: [{ label: "Fechar" }]
     });
   }
@@ -509,14 +589,21 @@ export function renderRecords(container) {
                         )} hover:opacity-90`,
                         onclick: () => openStatusPicker(r)
                       },
-                      String(r.status || "APROVADO").toUpperCase()
+                      String(r.status || "AGENDADO").toUpperCase()
                     )
                   ]),
 
                   el(
                     "div",
                     { class: "mt-2 text-xs text-slate-600 line-clamp-2" },
-                    Array.isArray(r.items) ? r.items.map((it) => it.name).join(", ") : "—"
+                    Array.isArray(r.items)
+                      ? r.items
+                          .map((it) => {
+                            const qty = Math.max(1, Math.floor(Number(it.qty || 1)));
+                            return qty > 1 ? `${qty}x ${it.name}` : it.name;
+                          })
+                          .join(", ")
+                      : "—"
                   ),
 
                   el("div", { class: "mt-2 flex items-end justify-between gap-3" }, [
@@ -567,7 +654,14 @@ export function renderRecords(container) {
                   el(
                     "td",
                     { class: "px-3 py-2 hidden lg:table-cell text-slate-700" },
-                    Array.isArray(r.items) ? r.items.map((it) => it.name).join(", ") : "—"
+                    Array.isArray(r.items)
+                      ? r.items
+                          .map((it) => {
+                            const qty = Math.max(1, Math.floor(Number(it.qty || 1)));
+                            return qty > 1 ? `${qty}x ${it.name}` : it.name;
+                          })
+                          .join(", ")
+                      : "—"
                   ),
                   el("td", { class: "px-3 py-2 align-top" }, [
                     el(

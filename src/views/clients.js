@@ -1,10 +1,10 @@
-import { createClient, deleteClient, listClients, updateClient } from "../db.js";
+import { createClient, deleteClient, listClients, listRecords, updateClient } from "../db.js";
 import { EVENTS, emit } from "../state.js";
 import { card, clear, el, emptyState, input, pageHeader } from "../ui/components.js";
 import { openActionsModal } from "../ui/actions.js";
 import { confirmDialog, openModal } from "../ui/modal.js";
 import { showToast } from "../ui/toast.js";
-import { computeClientDue, resetClientPeriodStartToday } from "../alerts.js";
+import { computeClientDue } from "../alerts.js";
 import { todayISO, openExternal } from "../utils.js";
 import { isDevEnv } from "../env.js";
 import { mockClientInitial } from "../mock.js";
@@ -42,29 +42,6 @@ function clientForm({ initial = {}, onSave }) {
   );
   unitSelect.value = initial.periodUnit === "days" ? "days" : "months";
 
-  const resetBtn = el(
-    "button",
-    {
-      type: "button",
-      class:
-        "inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100",
-      onclick: () => {
-        if (!initial?.id) {
-          showToast("Salve o cliente antes de reiniciar a contagem.", { type: "info" });
-          return;
-        }
-        try {
-          resetClientPeriodStartToday(initial.id);
-          emit(EVENTS.DATA_CHANGED);
-          showToast("Contagem reiniciada a partir de hoje.", { type: "success" });
-        } catch (err) {
-          showToast(err?.message || "Falha ao reiniciar contagem.", { type: "error" });
-        }
-      }
-    },
-    [el("i", { dataset: { lucide: "rotate-ccw" }, class: "h-4 w-4" }), "Reiniciar contagem hoje"]
-  );
-
   form.appendChild(
     el("div", { class: "grid grid-cols-1 gap-3 sm:grid-cols-2" }, [
       pvWrap,
@@ -74,7 +51,6 @@ function clientForm({ initial = {}, onSave }) {
       ])
     ])
   );
-  if (initial?.id) form.appendChild(el("div", { class: "pt-1" }, resetBtn));
 
   // Fallback para browsers sem `requestSubmit()`: um submit hidden.
   const hiddenSubmit = el("button", { type: "submit", class: "hidden", dataset: { hiddenSubmit: "1" } }, "submit");
@@ -246,6 +222,15 @@ export function renderClients(container) {
 
   function renderList() {
     const items = listClients({ q: state.q });
+    const allRecords = listRecords({ startISO: "0000-01-01", endISO: "9999-12-31" });
+    const lastConcludedByClient = new Map();
+    for (const r of allRecords) {
+      const status = String(r?.status || "").toUpperCase();
+      if (status !== "CONCLUIDO") continue;
+      const cid = String(r?.clientId || "");
+      if (!cid) continue;
+      if (!lastConcludedByClient.has(cid)) lastConcludedByClient.set(cid, r);
+    }
     clear(listHost);
 
     if (items.length === 0) {
@@ -288,7 +273,9 @@ export function renderClients(container) {
                 el("tr", { class: "hover:bg-slate-50" }, [
                   el("td", { class: "px-3 py-2 font-semibold text-slate-900" }, c.name),
                   el("td", { class: "px-3 py-2 hidden md:table-cell text-slate-700" }, (() => {
-                    const due = computeClientDue(c, todayISO());
+                    const last = lastConcludedByClient.get(String(c.id));
+                    const startISO = last?.dateISO ? String(last.dateISO).slice(0, 10) : "";
+                    const due = computeClientDue(c, todayISO(), { startISO });
                     if (!due.enabled) return "—";
                     const label = due.unit === "days" ? "dias" : "meses";
                     const status = due.isOverdue ? " • VENCIDO" : "";

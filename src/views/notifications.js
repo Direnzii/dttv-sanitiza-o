@@ -114,7 +114,7 @@ export function renderNotifications(container) {
 
     const today = todayISO();
     const todayRecords = listRecords({ startISO: today, endISO: today });
-    const approvedToday = todayRecords.filter((r) => String(r?.status || "").toUpperCase() === "APROVADO");
+    const approvedToday = todayRecords.filter((r) => String(r?.status || "").toUpperCase() === "AGENDADO");
 
     if (approvedToday.length === 0) return false;
 
@@ -141,7 +141,7 @@ export function renderNotifications(container) {
             el(
               "div",
               { class: "mt-1 text-sm text-slate-500" },
-              `Há ${approvedToday.length} agendamento(s) para hoje com status APROVADO. Este aviso não pode ser removido até mudar o status para FEITO/RECUSADO/CANCELADO.`
+              `Há ${approvedToday.length} agendamento(s) para hoje com status AGENDADO. Este aviso não pode ser removido até mudar o status para outro estado.`
             )
           ]),
           el(
@@ -161,7 +161,7 @@ export function renderNotifications(container) {
               el("div", { class: "flex flex-wrap items-start justify-between gap-3" }, [
                 el("div", { class: "min-w-0" }, [
                   el("div", { class: "flex flex-wrap items-center gap-2" }, [
-                    el("span", { class: "inline-flex items-center rounded-full border border-amber-200 bg-white px-2 py-1 text-xs font-semibold text-amber-800" }, "APROVADO"),
+                    el("span", { class: "inline-flex items-center rounded-full border border-amber-200 bg-white px-2 py-1 text-xs font-semibold text-amber-800" }, "AGENDADO"),
                     el("div", { class: "truncate text-sm font-semibold text-slate-900" }, r.clientName || "—")
                   ]),
                   el(

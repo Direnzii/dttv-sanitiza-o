@@ -28,11 +28,29 @@ function coerceDb(raw) {
 
 let _db = coerceDb(loadJSON(emptyDb()));
 
-const RECORD_STATUSES = new Set(["APROVADO", "FEITO", "RECUSADO", "CANCELADO"]);
+const RECORD_STATUSES = new Set(["AGENDADO", "PEND. DE PAGAMENTO", "CONCLUIDO"]);
+
+function migrateLegacyRecordStatus(r) {
+  const cur = String(r?.status || "").toUpperCase();
+  if (RECORD_STATUSES.has(cur)) return r;
+
+  // Migração de status antigos → novos 3 status
+  let next = "AGENDADO";
+  if (cur === "FEITO") next = "CONCLUIDO";
+  else if (cur === "APROVADO") next = "AGENDADO";
+  else if (cur === "RECUSADO" || cur === "CANCELADO") next = "AGENDADO";
+
+  const out = { ...r, status: next };
+  if ((cur === "RECUSADO" || cur === "CANCELADO") && !String(out.statusReason || "").trim()) {
+    out.statusReason = `Status antigo: ${cur}`;
+  }
+  return out;
+}
 
 function normalizeRecordStatus(status) {
   const s = String(status || "").trim().toUpperCase();
-  return RECORD_STATUSES.has(s) ? s : "APROVADO";
+  // Default novo: AGENDADO (mantém compatibilidade com dados antigos).
+  return RECORD_STATUSES.has(s) ? s : "AGENDADO";
 }
 
 function buildBudgetCode({ id, createdAt } = {}) {
@@ -84,6 +102,17 @@ function ensureBudgetCodes() {
 
 // Migração: garante `code` em orçamentos antigos (executa uma vez no load).
 ensureBudgetCodes();
+
+// Migração: normaliza status antigos para os 3 atuais.
+{
+  let changed = false;
+  _db.records = _db.records.map((r) => {
+    const next = migrateLegacyRecordStatus(r);
+    if (next !== r) changed = true;
+    return next;
+  });
+  if (changed) persist();
+}
 
 export function getMeta() {
   return {
@@ -199,7 +228,6 @@ export function createClient(input) {
     // Periodicidade recomendada (para alertas)
     periodValue,
     periodUnit,
-    periodStartISO: periodValue > 0 ? todayISO() : "",
     createdAt: now,
     updatedAt: now
   };
@@ -224,43 +252,25 @@ export function updateClient(id, patch) {
   if (patch?.location !== undefined) next.location = String(patch.location ?? "").trim();
 
   // Periodicidade recomendada
-  const prevPeriodValue = toNumber(next.periodValue, 0);
-  const prevPeriodUnit = String(next.periodUnit || "");
-  const prevStart = String(next.periodStartISO || "").slice(0, 10);
-
-  let periodTouched = false;
   if (patch?.periodValue !== undefined) {
     const pvRaw = toNumber(patch.periodValue, 0);
     next.periodValue = pvRaw > 0 ? Math.max(1, Math.floor(pvRaw)) : 0;
-    periodTouched = true;
   }
   if (patch?.periodUnit !== undefined) {
     next.periodUnit = String(patch.periodUnit || "");
-    periodTouched = true;
-  }
-  if (patch?.periodStartISO !== undefined) {
-    next.periodStartISO = String(patch.periodStartISO || "").slice(0, 10);
-    // startISO isolado não reinicia unidade/valor
   }
 
   if (toNumber(next.periodValue, 0) > 0) {
     if (next.periodUnit !== "days" && next.periodUnit !== "months") {
       throw new Error("Periodicidade: unidade inválida (dias/meses).");
     }
-
-    const didChangeValue = prevPeriodValue !== toNumber(next.periodValue, 0);
-    const didChangeUnit = prevPeriodUnit !== String(next.periodUnit || "");
-
-    // "a partir daquele ponto": quando habilita ou altera periodicidade, reinicia hoje
-    const enablingNow = prevPeriodValue <= 0 && toNumber(next.periodValue, 0) > 0;
-    if (enablingNow || (periodTouched && (didChangeValue || didChangeUnit)) || !prevStart) {
-      next.periodStartISO = todayISO();
-    }
   } else {
     // desabilita periodicidade
     next.periodUnit = "";
-    next.periodStartISO = "";
   }
+  // Campo legado: não usamos mais o start no cadastro do cliente.
+  // Mantemos compatibilidade na importação, mas removemos do registro ativo.
+  if ("periodStartISO" in next) delete next.periodStartISO;
 
   next.updatedAt = nowISO();
 
@@ -323,18 +333,29 @@ export function deleteService(id) {
 
 // ---------- Mutations: Records (Agenda) ----------
 
+function normalizeQty(qty) {
+  const n = Math.floor(toNumber(qty, 1));
+  return n >= 1 ? n : 1;
+}
+
 function buildItemsFromServiceIds(serviceIds) {
   const ids = Array.isArray(serviceIds) ? serviceIds : [];
   const byId = new Map(_db.services.map((s) => [s.id, s]));
   const items = [];
-  for (const sid of ids) {
+  for (const entry of ids) {
+    const isObj = entry && typeof entry === "object";
+    const sid = isObj ? String(entry.serviceId || "") : String(entry || "");
+    const qty = isObj ? normalizeQty(entry.qty) : 1;
     const s = byId.get(sid);
     if (!s) continue;
+    const unitCost = toNumber(s.totalCost, 0);
     items.push({
       serviceId: s.id,
       name: s.name,
       detail: s.detail,
-      cost: toNumber(s.totalCost, 0)
+      qty,
+      unitCost,
+      cost: unitCost * qty
     });
   }
   return items;
@@ -356,10 +377,7 @@ export function createRecord(input) {
   if (items.length === 0) throw new Error("Selecione pelo menos 1 serviço.");
 
   const status = normalizeRecordStatus(input?.status);
-  const statusReason = String(input?.statusReason ?? "");
-  if ((status === "RECUSADO" || status === "CANCELADO") && input?.statusReason === undefined) {
-    throw new Error("Informe um motivo (pode ser vazio) para RECUSADO/CANCELADO.");
-  }
+  const statusReason = String(input?.statusReason ?? "").trim(); // agora é "observação" (opcional)
 
   const now = nowISO();
   const record = {
@@ -372,7 +390,7 @@ export function createRecord(input) {
     notes: String(input?.notes ?? "").trim(),
     total: computeTotal(items, 0),
     status,
-    statusReason: status === "RECUSADO" || status === "CANCELADO" ? statusReason : "",
+    statusReason,
     createdAt: now,
     updatedAt: now
   };
@@ -410,28 +428,11 @@ export function updateRecord(id, patch) {
 
   if (patch?.status !== undefined) {
     const nextStatus = normalizeRecordStatus(patch.status);
-    const isChanging = nextStatus !== String(cur.status || "APROVADO");
-
-    if (isChanging && (nextStatus === "RECUSADO" || nextStatus === "CANCELADO")) {
-      // motivo é obrigatório (mas pode ser vazio): exigimos presença no patch
-      if (patch.statusReason === undefined) {
-        throw new Error("Informe um motivo (pode ser vazio) para RECUSADO/CANCELADO.");
-      }
-      next.statusReason = String(patch.statusReason ?? "");
-    }
-
-    if (isChanging && nextStatus !== "RECUSADO" && nextStatus !== "CANCELADO") {
-      // saindo de um estado que tinha motivo
-      next.statusReason = "";
-    }
-
+    const isChanging = nextStatus !== String(cur.status || "AGENDADO");
     next.status = nextStatus;
   }
 
-  if (patch?.statusReason !== undefined && (String(next.status) === "RECUSADO" || String(next.status) === "CANCELADO")) {
-    // permite ajustar motivo sem mudar status (ex.: correção)
-    next.statusReason = String(patch.statusReason ?? "");
-  }
+  if (patch?.statusReason !== undefined) next.statusReason = String(patch.statusReason ?? "").trim();
 
   next.updatedAt = nowISO();
 
@@ -534,7 +535,7 @@ export function createRecordFromBudget(budgetId, { dateISO, timeHM } = {}) {
     items: clone(b.items),
     notes: b.notes ? `Convertido de orçamento ${b.id}\n${b.notes}` : `Convertido de orçamento ${b.id}`,
     total: computeTotal(b.items, 0),
-    status: "APROVADO",
+    status: "AGENDADO",
     statusReason: "",
     createdAt: now,
     updatedAt: now
@@ -630,7 +631,6 @@ export function importBackup(payload) {
         location: String(c.location ?? "").trim(),
         periodValue: Math.max(0, Math.floor(toNumber(c.periodValue, 0))),
         periodUnit: String(c.periodUnit ?? "").trim(),
-        periodStartISO: String(c.periodStartISO ?? "").slice(0, 10),
         createdAt: typeof c.createdAt === "string" ? c.createdAt : nowISO(),
         updatedAt: typeof c.updatedAt === "string" ? c.updatedAt : nowISO()
       }))

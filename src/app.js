@@ -48,7 +48,7 @@ function updateNotificationsNavBadge() {
   try {
     const today = todayISO();
     const todayRecords = listRecords({ startISO: today, endISO: today });
-    const approvedToday = todayRecords.filter((r) => String(r?.status || "").toUpperCase() === "APROVADO");
+    const approvedToday = todayRecords.filter((r) => String(r?.status || "").toUpperCase() === "AGENDADO");
     if (approvedToday.length > 0) total += 1;
   } catch {
     // ignore

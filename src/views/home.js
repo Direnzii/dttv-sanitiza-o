@@ -1,10 +1,13 @@
 import { listRecords } from "../db.js";
-import { addDaysISO, formatCurrencyBRL, formatDateBR, todayISO, toNumber } from "../utils.js";
+import { addDaysISO, brDateToISO, attachBRDateMask, formatCurrencyBRL, formatDateBR, isoToBRDate, todayISO, toNumber } from "../utils.js";
 import { card, clear, el, pageHeader } from "../ui/components.js";
 import { navigate } from "../ui/router.js";
 import { formatDateTime, statusCell } from "../ui/recordUi.js";
 
 function computeRange({ mode, from, to }) {
+  if (mode === "upcoming") {
+    return { startISO: todayISO(), endISO: "9999-12-31" };
+  }
   const end = String(to || todayISO()).slice(0, 10);
   if (mode === "custom") {
     const start = String(from || end).slice(0, 10);
@@ -17,42 +20,50 @@ function computeRange({ mode, from, to }) {
 
 function sumTotals(records) {
   return records
-    .filter((r) => String(r?.status || "").toUpperCase() === "FEITO")
+    .filter((r) => String(r?.status || "").toUpperCase() === "CONCLUIDO")
     .reduce((acc, r) => acc + toNumber(r.total, 0), 0);
 }
 
 export function renderHome(container) {
-  const defaults = { mode: "7", from: "", to: todayISO() };
+  const defaults = { mode: "upcoming", from: "", to: todayISO() };
   const state = { ...defaults };
 
   const select = el("select", {
     class:
       "rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/20"
   }, [
-    el("option", { value: "7" }, "Últimos 7 dias"),
-    el("option", { value: "14" }, "Últimos 14 dias"),
-    el("option", { value: "30" }, "Últimos 30 dias"),
+    el("option", { value: "upcoming" }, "Próximos agendamentos"),
     el("option", { value: "custom" }, "Período personalizado")
   ]);
 
   const inputFrom = el("input", {
-    type: "date",
+    type: "text",
+    inputmode: "numeric",
+    placeholder: "DD/MM/AAAA",
     class:
       "w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/20"
   });
   const inputTo = el("input", {
-    type: "date",
-    value: state.to,
+    type: "text",
+    inputmode: "numeric",
+    placeholder: "DD/MM/AAAA",
+    value: isoToBRDate(state.to),
     class:
       "w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/20"
   });
+  attachBRDateMask(inputFrom);
+  attachBRDateMask(inputTo);
 
   const summaryHost = el("div");
   const listHost = el("div");
 
   function renderAll() {
     const { startISO, endISO } = computeRange({ mode: state.mode, from: state.from, to: state.to });
-    const records = listRecords({ startISO, endISO });
+    const all = listRecords({ startISO, endISO });
+    const records =
+      state.mode === "upcoming"
+        ? all.filter((r) => String(r?.status || "").toUpperCase() === "AGENDADO")
+        : all;
     const total = sumTotals(records);
 
     clear(summaryHost);
@@ -84,7 +95,11 @@ export function renderHome(container) {
           el("div", { class: "flex items-center justify-between gap-3" }, [
             el("div", {}, [
               el("div", { class: "text-xs font-semibold uppercase tracking-wider text-slate-500" }, "Período"),
-              el("div", { class: "mt-1 text-base font-semibold text-slate-900" }, `${formatDateBR(startISO)} → ${formatDateBR(endISO)}`)
+              el(
+                "div",
+                { class: "mt-1 text-base font-semibold text-slate-900" },
+                state.mode === "upcoming" ? `Hoje → Futuro` : `${formatDateBR(startISO)} → ${formatDateBR(endISO)}`
+              )
             ]),
             el("div", { class: "grid h-11 w-11 place-items-center rounded-2xl bg-slate-100 text-slate-700" }, [
               el("i", { dataset: { lucide: "calendar-range" }, class: "h-6 w-6" })
@@ -100,8 +115,12 @@ export function renderHome(container) {
       card([
         el("div", { class: "flex flex-wrap items-center justify-between gap-3" }, [
           el("div", {}, [
-            el("div", { class: "text-base font-semibold text-slate-900" }, "Serviços"),
-            el("div", { class: "mt-0.5 text-sm text-slate-500" }, "Registros de agenda no período selecionado.")
+            el("div", { class: "text-base font-semibold text-slate-900" }, state.mode === "upcoming" ? "Próximos agendamentos" : "Serviços"),
+            el(
+              "div",
+              { class: "mt-0.5 text-sm text-slate-500" },
+              state.mode === "upcoming" ? "Agendamentos de hoje e futuros com status AGENDADO." : "Registros de agenda no período selecionado."
+            )
           ]),
           el(
             "button",
@@ -116,7 +135,9 @@ export function renderHome(container) {
         ]),
         recent.length === 0
           ? el("div", { class: "mt-4 rounded-xl border border-dashed border-slate-200 bg-slate-50 p-4 text-sm text-slate-600" }, [
-              "Sem registros no período. Cadastre um serviço prestado para alimentar o dashboard."
+              state.mode === "upcoming"
+                ? "Sem agendamentos futuros. Crie um novo registro para aparecer aqui."
+                : "Sem registros no período. Cadastre um serviço prestado para alimentar o dashboard."
             ])
           : el("div", { class: "mt-4" }, [
               // Mobile: lista/cartões (sem scroll lateral)
@@ -130,7 +151,14 @@ export function renderHome(container) {
                         el(
                           "div",
                           { class: "mt-2 text-xs text-slate-600 line-clamp-2" },
-                          Array.isArray(r.items) ? r.items.map((it) => it.name).join(", ") : "—"
+                          Array.isArray(r.items)
+                            ? r.items
+                                .map((it) => {
+                                  const qty = Math.max(1, Math.floor(Number(it.qty || 1)));
+                                  return qty > 1 ? `${qty}x ${it.name}` : it.name;
+                                })
+                                .join(", ")
+                            : "—"
                         ),
                   el("div", { class: "mt-2" }, [
                     el("div", { class: "text-xs font-semibold uppercase tracking-wider text-slate-500" }, "STATUS"),
@@ -166,7 +194,14 @@ export function renderHome(container) {
                       el(
                         "td",
                         { class: "px-3 py-2 text-slate-700" },
-                        Array.isArray(r.items) ? r.items.map((it) => it.name).join(", ") : "—"
+                        Array.isArray(r.items)
+                          ? r.items
+                              .map((it) => {
+                                const qty = Math.max(1, Math.floor(Number(it.qty || 1)));
+                                return qty > 1 ? `${qty}x ${it.name}` : it.name;
+                              })
+                              .join(", ")
+                          : "—"
                       ),
                       el("td", { class: "px-3 py-2 align-top" }, statusCell(r)),
                       el("td", { class: "px-3 py-2 text-right font-semibold text-slate-900" }, formatCurrencyBRL(r.total))
@@ -231,17 +266,17 @@ export function renderHome(container) {
     applyBtn.classList.toggle("hidden", !custom);
 
     if (!custom) {
-      // em períodos fixos, "até" não aparece e usamos hoje automaticamente
+      // "Próximos agendamentos": range fixo (hoje → futuro)
       state.from = "";
       state.to = todayISO();
       inputFrom.value = "";
-      inputTo.value = state.to;
+      inputTo.value = isoToBRDate(state.to);
     } else {
       // garante valores coerentes ao entrar no personalizado
       if (!state.to) state.to = todayISO();
       if (!state.from) state.from = state.to; // default: hoje → hoje
-      inputTo.value = state.to;
-      inputFrom.value = state.from || state.to;
+      inputTo.value = isoToBRDate(state.to);
+      inputFrom.value = isoToBRDate(state.from || state.to);
     }
   }
 
@@ -254,10 +289,10 @@ export function renderHome(container) {
     renderAll();
   });
   inputFrom.addEventListener("change", () => {
-    state.from = inputFrom.value;
+    state.from = brDateToISO(inputFrom.value);
   });
   inputTo.addEventListener("change", () => {
-    state.to = inputTo.value;
+    state.to = brDateToISO(inputTo.value) || todayISO();
   });
 
   renderAll();

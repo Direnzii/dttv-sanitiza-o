@@ -1,4 +1,4 @@
-import { listClients, listRecords, updateClient } from "./db.js";
+import { listClients, listRecords } from "./db.js";
 import { addDaysISO, addMonthsISO, formatDateBR, todayISO } from "./utils.js";
 import { showToast } from "./ui/toast.js";
 import { addNotification } from "./notifications.js";
@@ -23,13 +23,8 @@ function saveNotifState(state) {
 export function computeClientDue(client, asOfISO = todayISO(), ctx = {}) {
   const value = Number(client?.periodValue || 0);
   const unit = String(client?.periodUnit || "");
-  // Regra de alertas: basear no último serviço executado.
-  // Quando `ctx.startISO` for passado (mesmo vazio), NÃO fazemos fallback para `client.periodStartISO`.
-  const startSource =
-    ctx && Object.prototype.hasOwnProperty.call(ctx, "startISO")
-      ? ctx.startISO
-      : client?.periodStartISO;
-  const startISO = String(startSource ?? "").slice(0, 10);
+  // Regra: basear sempre no último serviço executado (CONCLUIDO).
+  const startISO = String(ctx?.startISO ?? "").slice(0, 10);
 
   if (!value || value <= 0) return { enabled: false };
   if (unit !== "days" && unit !== "months") return { enabled: false };
@@ -52,12 +47,12 @@ export function computeClientDue(client, asOfISO = todayISO(), ctx = {}) {
 export function getOverdueClients(asOfISO = todayISO(), { onlyWithLastDone = false } = {}) {
   const clients = listClients();
 
-  // Busca 1x e pega o último FEITO por cliente (listRecords já vem ordenado desc por data/hora).
+  // Busca 1x e pega o último CONCLUIDO por cliente (listRecords já vem ordenado desc por data/hora).
   const all = listRecords({ startISO: "0000-01-01", endISO: "9999-12-31" });
   const lastDoneByClient = new Map();
   for (const r of all) {
     const status = String(r?.status || "").toUpperCase();
-    if (status !== "FEITO") continue;
+    if (status !== "CONCLUIDO") continue;
     const cid = String(r?.clientId || "");
     if (!cid) continue;
     if (!lastDoneByClient.has(cid)) lastDoneByClient.set(cid, r);
@@ -71,7 +66,7 @@ export function getOverdueClients(asOfISO = todayISO(), { onlyWithLastDone = fal
         : "";
       const startISO = last?.dateISO ? String(last.dateISO).slice(0, 10) : "";
 
-      // "serviço que já foi feito": se não há FEITO, não considera para notificação
+      // "serviço que já foi concluído": se não há CONCLUIDO, não considera para notificação
       if (onlyWithLastDone && !startISO) return { client: c, due: { enabled: false } };
 
       return { client: c, due: computeClientDue(c, asOfISO, { startISO, lastDoneAt }) };
@@ -174,7 +169,7 @@ export function startAlerts({ intervalMs = 60_000 * 30 } = {}) {
 
   const check = async () => {
     const now = todayISO();
-    // Apenas clientes que já têm ao menos 1 serviço FEITO.
+    // Apenas clientes que já têm ao menos 1 serviço CONCLUIDO.
     const overdue = getOverdueClients(now, { onlyWithLastDone: true });
     if (overdue.length === 0) return;
 
@@ -219,9 +214,5 @@ export function startAlerts({ intervalMs = 60_000 * 30 } = {}) {
     if (timer) clearInterval(timer);
     document.removeEventListener("visibilitychange", onVis);
   };
-}
-
-export function resetClientPeriodStartToday(clientId) {
-  updateClient(clientId, { periodStartISO: todayISO() });
 }
 

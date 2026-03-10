@@ -52,8 +52,3 @@
 * {
   -webkit-tap-highlight-color: transparent;
 }
-
-/* Evita "jump" em input type=date em alguns browsers */
-input[type="date"] {
-  min-height: 40px;
-}
