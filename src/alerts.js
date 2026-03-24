@@ -74,9 +74,8 @@ export function getOverdueClients(asOfISO = todayISO(), { onlyWithLastDone = fal
     .filter((x) => x.due.enabled && x.due.isOverdue);
 }
 
-async function notifySystem({ title, body }) {
+export async function testSystemNotification() {
   if (!("Notification" in window)) return false;
-
   if (Notification.permission === "default") {
     try {
       await Notification.requestPermission();
@@ -84,18 +83,15 @@ async function notifySystem({ title, body }) {
       // ignore
     }
   }
-
   if (Notification.permission !== "granted") return false;
-
-  // Preferir via SW quando disponível (melhor UX em PWA); fallback para Notification direta.
   try {
     const reg = await navigator.serviceWorker?.getRegistration?.();
     if (reg?.showNotification) {
-      await reg.showNotification(title, {
-        body,
+      await reg.showNotification("DTTV — teste de notificação", {
+        body: "Se você viu/escutou isso, as notificações do sistema estão funcionando.",
         icon: "./assets/icons/icon-192.svg",
         badge: "./assets/icons/icon-192.svg",
-        tag: "dttv-due",
+        tag: "dttv-test",
         renotify: false
       });
       return true;
@@ -103,20 +99,14 @@ async function notifySystem({ title, body }) {
   } catch {
     // ignore
   }
-
   try {
-    new Notification(title, { body });
+    new Notification("DTTV — teste de notificação", {
+      body: "Se você viu/escutou isso, as notificações do sistema estão funcionando."
+    });
     return true;
   } catch {
     return false;
   }
-}
-
-export async function testSystemNotification() {
-  return await notifySystem({
-    title: "DTTV — teste de notificação",
-    body: "Se você viu/escutou isso, as notificações do sistema estão funcionando."
-  });
 }
 
 function unitLabel(unit, value) {
@@ -149,11 +139,6 @@ export async function runAlertsNow({ maxPerRun = 10 } = {}) {
       type: "warning",
       title: "Periodicidade do cliente atingida",
       message: msg
-    });
-
-    await notifySystem({
-      title: "Periodicidade do cliente atingida",
-      body: msg
     });
 
     notifState[key] = due.dueISO;
@@ -189,11 +174,6 @@ export function startAlerts({ intervalMs = 60_000 * 30 } = {}) {
         type: "warning",
         title: "Periodicidade do cliente atingida",
         message: msg
-      });
-
-      await notifySystem({
-        title: "Periodicidade do cliente atingida",
-        body: msg
       });
 
       notifState[key] = due.dueISO;

@@ -3,6 +3,54 @@ import { uid, nowISO } from "./utils.js";
 const STORAGE_KEY = "dttv_notifications_v1";
 const STORAGE_KEY_OLD = "dt" + "tz_notifications_v1";
 
+async function notifySystem({ title, body, tag } = {}) {
+  if (!("Notification" in window)) return false;
+
+  if (Notification.permission === "default") {
+    try {
+      await Notification.requestPermission();
+    } catch {
+      // ignore
+    }
+  }
+
+  if (Notification.permission !== "granted") return false;
+
+  // Preferir via SW quando disponível (melhor UX em PWA); fallback para Notification direta.
+  try {
+    const reg = await navigator.serviceWorker?.getRegistration?.();
+    if (reg?.showNotification) {
+      await reg.showNotification(String(title || "Notificação"), {
+        body: String(body || ""),
+        icon: "./assets/icons/icon-192.svg",
+        badge: "./assets/icons/icon-192.svg",
+        tag: String(tag || "dttv-notif"),
+        renotify: false
+      });
+      return true;
+    }
+  } catch {
+    // ignore
+  }
+
+  try {
+    new Notification(String(title || "Notificação"), { body: String(body || "") });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function notifySystemForNotification(n) {
+  const title = String(n?.title || "Notificação");
+  const body = String(n?.message || "").trim();
+  const tag = `dttv-notif:${String(n?.id || "")}`;
+  // Fire-and-forget para manter addNotification síncrono.
+  queueMicrotask(() => {
+    void notifySystem({ title, body, tag });
+  });
+}
+
 function loadAll() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(STORAGE_KEY_OLD);
@@ -53,6 +101,7 @@ export function addNotification({ type = "info", title = "Notificação", messag
   }
 
   saveAll(all);
+  notifySystemForNotification(n);
   return n;
 }
 

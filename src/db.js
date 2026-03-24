@@ -458,6 +458,14 @@ export function createBudget(input) {
   const items = buildItemsFromServiceIds(input?.serviceIds);
   if (items.length === 0) throw new Error("Selecione pelo menos 1 serviço.");
 
+  const additionalFields = (() => {
+    const raw = Array.isArray(input?.additionalFields) ? input.additionalFields : [];
+    return raw.slice(0, 3).map((x, i) => ({
+      title: String(x?.title ?? "").trim() || `Campo ${i + 1}`,
+      value: String(x?.value ?? "").trim()
+    }));
+  })();
+
   const discount = toNumber(input?.discount, 0);
   const validityDays = Math.max(0, Math.floor(toNumber(input?.validityDays, 7)));
   const now = nowISO();
@@ -470,6 +478,7 @@ export function createBudget(input) {
     clientName: client.name, // snapshot
     items,
     notes: String(input?.notes ?? "").trim(),
+    additionalFields,
     discount,
     total: computeTotal(items, discount),
     validityDays,
@@ -501,6 +510,13 @@ export function updateBudget(id, patch) {
     next.items = items;
   }
   if (patch?.notes !== undefined) next.notes = String(patch.notes ?? "").trim();
+  if (patch?.additionalFields !== undefined) {
+    const raw = Array.isArray(patch.additionalFields) ? patch.additionalFields : [];
+    next.additionalFields = raw.slice(0, 3).map((x, i) => ({
+      title: String(x?.title ?? "").trim() || `Campo ${i + 1}`,
+      value: String(x?.value ?? "").trim()
+    }));
+  }
   if (patch?.discount !== undefined) next.discount = toNumber(patch.discount, 0);
   if (patch?.validityDays !== undefined) next.validityDays = Math.max(0, Math.floor(toNumber(patch.validityDays, 7)));
 

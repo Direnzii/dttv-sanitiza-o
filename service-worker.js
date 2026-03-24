@@ -1,7 +1,7 @@
 /* Basic offline-first Service Worker (App Shell + runtime cache).
    Observação: CDNs (Tailwind/jsPDF/Lucide) são cacheados em runtime após o primeiro acesso. */
 
-const CACHE_VERSION = "dttv-agenda-v1-2026-02-24-54";
+const CACHE_VERSION = "dttv-agenda-v1-2026-02-24-60";
 const CACHE_APP = `${CACHE_VERSION}:app`;
 const CACHE_RUNTIME = `${CACHE_VERSION}:runtime`;
 

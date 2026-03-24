@@ -36,6 +36,11 @@ function generateBudgetPdf(budget) {
   const pageH = doc.internal.pageSize.getHeight();
 
   const margin = 15;
+  const ensureSpace = (needed = 12) => {
+    if (y + needed <= pageH - margin) return;
+    doc.addPage();
+    y = margin;
+  };
   const line = (y) => {
     doc.setDrawColor(226, 232, 240);
     doc.line(margin, y, pageW - margin, y);
@@ -181,16 +186,56 @@ function generateBudgetPdf(budget) {
 
   // Notes
   const notes = String(budget.notes || "").trim();
-  if (notes) {
+  const additional = Array.isArray(budget.additionalFields) ? budget.additionalFields.slice(0, 3) : [];
+  const printable = additional
+    .map((x, i) => ({
+      title: String(x?.title ?? "").trim() || `Campo ${i + 1}`,
+      value: String(x?.value ?? "").trim()
+    }))
+    .filter((x) => x.title || x.value);
+
+  if (notes || printable.length) {
     y += 10;
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(11);
-    doc.text("Observações", margin, y);
-    y += 5;
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    doc.setTextColor(71, 85, 105);
-    doc.text(doc.splitTextToSize(notes, pageW - margin * 2), margin, y);
+    ensureSpace(24);
+    if (notes) {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      doc.setTextColor(15, 23, 42);
+      doc.text("Observações", margin, y);
+      y += 5;
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      doc.setTextColor(71, 85, 105);
+      const noteLines = doc.splitTextToSize(notes, pageW - margin * 2);
+      doc.text(noteLines, margin, y);
+      y += noteLines.length * 4.2;
+      if (printable.length) y += 6;
+    }
+
+    for (const f of printable) {
+      ensureSpace(18);
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      doc.setTextColor(15, 23, 42);
+      doc.text(String(f.title || "Observação"), margin, y);
+      y += 5;
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      doc.setTextColor(71, 85, 105);
+      const value = String(f.value || "").trim();
+      if (value) {
+        const lines = doc.splitTextToSize(value, pageW - margin * 2);
+        doc.text(lines, margin, y);
+        y += lines.length * 4.2;
+      } else {
+        doc.text("—", margin, y);
+        y += 4.2;
+      }
+      y += 6;
+    }
+
     doc.setTextColor(15, 23, 42);
   }
 
@@ -339,6 +384,89 @@ function budgetForm({ initial = null, onSave }) {
   const notes = textarea({ label: "Observações", name: "notes", value: initial?.notes || "", placeholder: "Condições, prazos, observações...", rows: 4 });
   notes.querySelector("textarea").name = "notes";
 
+  // Campos adicionais (0-3)
+  const initialExtrasRaw = Array.isArray(initial?.additionalFields) ? initial.additionalFields : [];
+  const extras = initialExtrasRaw
+    .slice(0, 3)
+    .map((x, i) => ({
+      title: String(x?.title ?? `Campo ${i + 1}`).trim() || `Campo ${i + 1}`,
+      value: String(x?.value ?? "").trim()
+    }));
+
+  const extrasCount = el("input", {
+    type: "number",
+    min: "0",
+    max: "3",
+    step: "1",
+    value: String(Math.min(3, Math.max(0, extras.length))),
+    class:
+      "w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/20"
+  });
+  const extrasHost = el("div", { class: "space-y-3" });
+
+  function clampExtrasCount() {
+    const n = Math.max(0, Math.min(3, Math.floor(Number(extrasCount.value || 0))));
+    extrasCount.value = String(n);
+    return n;
+  }
+
+  function ensureExtrasLength(n) {
+    while (extras.length < n) {
+      const i = extras.length;
+      extras.push({ title: `Campo ${i + 1}`, value: "" });
+    }
+    if (extras.length > n) extras.splice(n);
+  }
+
+  function renderExtras() {
+    clear(extrasHost);
+    const n = clampExtrasCount();
+    ensureExtrasLength(n);
+    if (n === 0) return;
+
+    for (let i = 0; i < n; i++) {
+      const titleInput = el("input", {
+        type: "text",
+        value: extras[i].title,
+        placeholder: "Título (ex.: Descrição)",
+        class:
+          "w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/20"
+      });
+      titleInput.addEventListener("input", () => {
+        extras[i].title = String(titleInput.value ?? "");
+      });
+
+      const valueBox = textarea({
+        label: "Texto",
+        name: `additional_${i}_value`,
+        value: extras[i].value,
+        placeholder: "Conteúdo livre...",
+        rows: 3
+      });
+      const valueTa = valueBox.querySelector("textarea");
+      valueTa.addEventListener("input", () => {
+        extras[i].value = String(valueTa.value ?? "");
+      });
+
+      extrasHost.appendChild(
+        el("div", { class: "rounded-2xl border border-slate-200 bg-white p-3" }, [
+          el("div", { class: "text-xs font-semibold uppercase tracking-wider text-slate-500" }, `Campo adicional ${i + 1}`),
+          el("div", { class: "mt-2 space-y-2" }, [
+            el("div", { class: "space-y-1" }, [
+              el("div", { class: "text-xs font-semibold uppercase tracking-wider text-slate-500" }, "Título"),
+              titleInput
+            ]),
+            valueBox
+          ])
+        ])
+      );
+    }
+  }
+
+  extrasCount.addEventListener("change", renderExtras);
+  extrasCount.addEventListener("input", renderExtras);
+  renderExtras();
+
   form.appendChild(el("div", { class: "space-y-1" }, [
     el("div", { class: "text-xs font-semibold uppercase tracking-wider text-slate-500" }, "Cliente"),
     client
@@ -362,6 +490,12 @@ function budgetForm({ initial = null, onSave }) {
   ]));
 
   form.appendChild(notes);
+
+  form.appendChild(el("div", { class: "space-y-1" }, [
+    el("div", { class: "text-xs font-semibold uppercase tracking-wider text-slate-500" }, "Campos adicionais (0-3)"),
+    extrasCount
+  ]));
+  form.appendChild(extrasHost);
 
   // Fallback para browsers sem `requestSubmit()`: um submit hidden.
   const hiddenSubmit = el("button", { type: "submit", class: "hidden", dataset: { hiddenSubmit: "1" } }, "submit");
@@ -400,7 +534,13 @@ function budgetForm({ initial = null, onSave }) {
       serviceIds,
       discount: discount.value,
       validityDays: validityDays.value,
-      notes: form.querySelector('textarea[name="notes"]')?.value || ""
+      notes: form.querySelector('textarea[name="notes"]')?.value || "",
+      additionalFields: extras
+        .slice(0, clampExtrasCount())
+        .map((x, i) => ({
+          title: String(x?.title ?? "").trim() || `Campo ${i + 1}`,
+          value: String(x?.value ?? "").trim()
+        }))
     };
     try {
       await onSave(payload);
