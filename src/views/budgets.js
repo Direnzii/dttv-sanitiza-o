@@ -46,7 +46,8 @@ function generateBudgetPdf(budget) {
     doc.line(margin, y, pageW - margin, y);
   };
 
-  const issuer = "DTTV";
+  const { budgetIssuerName, budgetIssuerFields } = getTheme();
+  const issuer = String(budgetIssuerName || "").trim(); // se vazio, fica vazio mesmo
   const created = budget.createdAt ? budget.createdAt.slice(0, 10) : todayISO();
   const validUntil = (() => {
     const d = new Date(created);
@@ -81,12 +82,47 @@ function generateBudgetPdf(budget) {
     // ignore (não deixa o PDF falhar por causa do ícone)
   }
 
-  doc.text(issuer, issuerX, 16, { align: "right" });
+  if (issuer) doc.text(issuer, issuerX, 16, { align: "right" });
 
   doc.setTextColor(15, 23, 42);
 
+  // Informações fixas (Config) no topo do PDF
+  // Header ocupa 26mm; deixa um respiro antes do bloco fixo.
+  let y = 40;
+  const fixed = Array.isArray(budgetIssuerFields) ? budgetIssuerFields.slice(0, 3) : [];
+  const fixedPrintable = fixed
+    .map((x, i) => ({
+      title: String(x?.title ?? "").trim(),
+      value: String(x?.value ?? "").trim()
+    }))
+    .filter((x) => x.value);
+
+  if (fixedPrintable.length) {
+    y = 40;
+    if (issuer) {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      doc.text(issuer, margin, y);
+      y += 5.5;
+    }
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.setTextColor(71, 85, 105);
+    for (const f of fixedPrintable) {
+      const lineText = f.title ? `${f.title}: ${f.value}` : String(f.value || "");
+      const lines = doc.splitTextToSize(lineText, pageW - margin * 2);
+      doc.text(lines, margin, y);
+      y += lines.length * 4.2;
+      y += 1.5;
+    }
+    doc.setTextColor(15, 23, 42);
+    y += 2;
+    line(y);
+    y += 8;
+  }
+
   // Meta
-  let y = 36;
   doc.setFont("helvetica", "bold");
   doc.setFontSize(11);
   doc.text("Dados do cliente", margin, y);
@@ -189,7 +225,7 @@ function generateBudgetPdf(budget) {
   const additional = Array.isArray(budget.additionalFields) ? budget.additionalFields.slice(0, 3) : [];
   const printable = additional
     .map((x, i) => ({
-      title: String(x?.title ?? "").trim() || `Campo ${i + 1}`,
+      title: String(x?.title ?? "").trim(),
       value: String(x?.value ?? "").trim()
     }))
     .filter((x) => x.title || x.value);
@@ -215,11 +251,14 @@ function generateBudgetPdf(budget) {
 
     for (const f of printable) {
       ensureSpace(18);
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(10);
-      doc.setTextColor(15, 23, 42);
-      doc.text(String(f.title || "Observação"), margin, y);
-      y += 5;
+      const title = String(f.title || "").trim();
+      if (title) {
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(10);
+        doc.setTextColor(15, 23, 42);
+        doc.text(title, margin, y);
+        y += 5;
+      }
 
       doc.setFont("helvetica", "normal");
       doc.setFontSize(10);
@@ -538,7 +577,7 @@ function budgetForm({ initial = null, onSave }) {
       additionalFields: extras
         .slice(0, clampExtrasCount())
         .map((x, i) => ({
-          title: String(x?.title ?? "").trim() || `Campo ${i + 1}`,
+          title: String(x?.title ?? "").trim(),
           value: String(x?.value ?? "").trim()
         }))
     };

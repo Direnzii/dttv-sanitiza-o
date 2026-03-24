@@ -461,7 +461,7 @@ export function createBudget(input) {
   const additionalFields = (() => {
     const raw = Array.isArray(input?.additionalFields) ? input.additionalFields : [];
     return raw.slice(0, 3).map((x, i) => ({
-      title: String(x?.title ?? "").trim() || `Campo ${i + 1}`,
+      title: String(x?.title ?? "").trim(),
       value: String(x?.value ?? "").trim()
     }));
   })();
@@ -513,7 +513,7 @@ export function updateBudget(id, patch) {
   if (patch?.additionalFields !== undefined) {
     const raw = Array.isArray(patch.additionalFields) ? patch.additionalFields : [];
     next.additionalFields = raw.slice(0, 3).map((x, i) => ({
-      title: String(x?.title ?? "").trim() || `Campo ${i + 1}`,
+      title: String(x?.title ?? "").trim(),
       value: String(x?.value ?? "").trim()
     }));
   }

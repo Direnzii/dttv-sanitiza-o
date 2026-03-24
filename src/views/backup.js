@@ -5,7 +5,15 @@ import { downloadTextFile, readFileAsText, readImageFileAsPngDataUrl } from "../
 import { card, clear, el, pageHeader } from "../ui/components.js";
 import { confirmDialog, openModal } from "../ui/modal.js";
 import { showToast } from "../ui/toast.js";
-import { applyTheme, clearTheme, getTheme, setAppIconDataUrl, setBudgetPdfIconDataUrl } from "../theme.js";
+import {
+  applyTheme,
+  clearTheme,
+  getTheme,
+  setAppIconDataUrl,
+  setBudgetIssuerFields,
+  setBudgetIssuerName,
+  setBudgetPdfIconDataUrl
+} from "../theme.js";
 import { isDevEnv, setDevEnv } from "../env.js";
 import { clearAllNotifications } from "../notifications.js";
 import { setLastBackupNow } from "../backupMeta.js";
@@ -201,6 +209,110 @@ export function renderBackup(container) {
       budgetIconInput.value = "";
     }
   });
+
+  // ----- Informações de orçamento (fixas no topo do PDF do ORC) -----
+  const issuerName = el("input", {
+    type: "text",
+    value: theme.budgetIssuerName || "",
+    placeholder: "Ex.: Minha Empresa LTDA",
+    class:
+      "w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/20"
+  });
+
+  const fields = (Array.isArray(theme.budgetIssuerFields) ? theme.budgetIssuerFields : [])
+    .slice(0, 3)
+    .map((x, i) => ({
+      title: String(x?.title ?? `Campo ${i + 1}`).trim() || `Campo ${i + 1}`,
+      value: String(x?.value ?? "").trim()
+    }));
+
+  const fieldsCount = el("input", {
+    type: "number",
+    min: "0",
+    max: "3",
+    step: "1",
+    value: String(Math.min(3, Math.max(0, fields.length))),
+    class:
+      "w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/20"
+  });
+
+  const fieldsHost = el("div", { class: "space-y-3" });
+
+  const clampCount = () => {
+    const n = Math.max(0, Math.min(3, Math.floor(Number(fieldsCount.value || 0))));
+    fieldsCount.value = String(n);
+    return n;
+  };
+  const ensureLen = (n) => {
+    while (fields.length < n) {
+      const i = fields.length;
+      fields.push({ title: `Campo ${i + 1}`, value: "" });
+    }
+    if (fields.length > n) fields.splice(n);
+  };
+  const persistBudgetInfo = () => {
+    setBudgetIssuerName(issuerName.value);
+    setBudgetIssuerFields(fields);
+  };
+
+  function renderBudgetInfoFields() {
+    clear(fieldsHost);
+    const n = clampCount();
+    ensureLen(n);
+    for (let i = 0; i < n; i++) {
+      const t = el("input", {
+        type: "text",
+        value: fields[i].title,
+        placeholder: "Título (ex.: CNPJ)",
+        class:
+          "w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/20"
+      });
+      const v = el("input", {
+        type: "text",
+        value: fields[i].value,
+        placeholder: "Valor (ex.: 00.000.000/0000-00)",
+        class:
+          "w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none focus:border-slate-900 focus:ring-2 focus:ring-slate-900/20"
+      });
+
+      t.addEventListener("input", () => {
+        fields[i].title = String(t.value ?? "");
+      });
+      v.addEventListener("input", () => {
+        fields[i].value = String(v.value ?? "");
+      });
+      t.addEventListener("change", persistBudgetInfo);
+      v.addEventListener("change", persistBudgetInfo);
+
+      fieldsHost.appendChild(
+        el("div", { class: "rounded-2xl border border-slate-200 bg-white p-3" }, [
+          el("div", { class: "text-xs font-semibold uppercase tracking-wider text-slate-500" }, `Campo ${i + 1}`),
+          el("div", { class: "mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2" }, [
+            el("div", { class: "space-y-1" }, [
+              el("div", { class: "text-xs font-semibold uppercase tracking-wider text-slate-500" }, "Título"),
+              t
+            ]),
+            el("div", { class: "space-y-1" }, [
+              el("div", { class: "text-xs font-semibold uppercase tracking-wider text-slate-500" }, "Valor"),
+              v
+            ])
+          ])
+        ])
+      );
+    }
+    persistBudgetInfo();
+  }
+
+  issuerName.addEventListener("change", () => {
+    persistBudgetInfo();
+    showToast("Informações de orçamento atualizadas.", { type: "success" });
+  });
+  fieldsCount.addEventListener("input", renderBudgetInfoFields);
+  fieldsCount.addEventListener("change", () => {
+    renderBudgetInfoFields();
+    showToast("Informações de orçamento atualizadas.", { type: "success" });
+  });
+  renderBudgetInfoFields();
 
   // ----- Ambiente Dev -----
   function askDevPassword() {
@@ -422,6 +534,25 @@ export function renderBackup(container) {
         ])
       ])
       ,
+      card([
+        el("div", { class: "text-sm font-semibold text-slate-900" }, "Informações de orçamento"),
+        el(
+          "div",
+          { class: "mt-1 text-sm text-slate-500" },
+          "Campos fixos que aparecem no topo do PDF do ORC (ex.: CNPJ, CPF, Endereço)."
+        ),
+        el("div", { class: "mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2" }, [
+          el("div", { class: "space-y-1" }, [
+            el("div", { class: "text-xs font-semibold uppercase tracking-wider text-slate-500" }, "Nome"),
+            issuerName
+          ]),
+          el("div", { class: "space-y-1" }, [
+            el("div", { class: "text-xs font-semibold uppercase tracking-wider text-slate-500" }, "Campos (0-3)"),
+            fieldsCount
+          ])
+        ]),
+        el("div", { class: "mt-3" }, [fieldsHost])
+      ]),
       card([
         el("div", { class: "flex items-start justify-between gap-3" }, [
           el("div", {}, [

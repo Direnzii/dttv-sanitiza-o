@@ -2,6 +2,8 @@ const KEY_APP_ICON = "dttv_theme_app_icon_v1";
 // Mantido por compatibilidade: antes era usado para ícone do ORC na navegação.
 // Agora é usado como "ícone/logo" do PDF de ORC.
 const KEY_BUDGET_PDF_ICON = "dttv_theme_budget_icon_v1";
+const KEY_BUDGET_ISSUER_NAME = "dttv_theme_budget_issuer_name_v1";
+const KEY_BUDGET_ISSUER_FIELDS = "dttv_theme_budget_issuer_fields_v1";
 
 function safeGet(key) {
   try {
@@ -11,9 +13,27 @@ function safeGet(key) {
   }
 }
 
+function safeGetJSON(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
 function safeSet(key, value) {
   try {
     localStorage.setItem(key, String(value || ""));
+  } catch {
+    // ignore
+  }
+}
+
+function safeSetJSON(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value ?? null));
   } catch {
     // ignore
   }
@@ -28,9 +48,21 @@ function safeRemove(key) {
 }
 
 export function getTheme() {
+  const rawFields = safeGetJSON(KEY_BUDGET_ISSUER_FIELDS);
+  const budgetIssuerFields = Array.isArray(rawFields)
+    ? rawFields
+        .slice(0, 3)
+        .map((x, i) => ({
+          title: String(x?.title ?? "").trim(),
+          value: String(x?.value ?? "").trim()
+        }))
+    : [];
+
   return {
     appIconDataUrl: safeGet(KEY_APP_ICON),
-    budgetPdfIconDataUrl: safeGet(KEY_BUDGET_PDF_ICON)
+    budgetPdfIconDataUrl: safeGet(KEY_BUDGET_PDF_ICON),
+    budgetIssuerName: String(safeGet(KEY_BUDGET_ISSUER_NAME) || "").trim(),
+    budgetIssuerFields
   };
 }
 
@@ -44,9 +76,26 @@ export function setBudgetPdfIconDataUrl(dataUrl) {
   else safeSet(KEY_BUDGET_PDF_ICON, dataUrl);
 }
 
+export function setBudgetIssuerName(name) {
+  const v = String(name ?? "").trim();
+  if (!v) safeRemove(KEY_BUDGET_ISSUER_NAME);
+  else safeSet(KEY_BUDGET_ISSUER_NAME, v);
+}
+
+export function setBudgetIssuerFields(fields) {
+  const raw = Array.isArray(fields) ? fields : [];
+  const normalized = raw.slice(0, 3).map((x, i) => ({
+    title: String(x?.title ?? "").trim(),
+    value: String(x?.value ?? "").trim()
+  }));
+  safeSetJSON(KEY_BUDGET_ISSUER_FIELDS, normalized);
+}
+
 export function clearTheme() {
   safeRemove(KEY_APP_ICON);
   safeRemove(KEY_BUDGET_PDF_ICON);
+  safeRemove(KEY_BUDGET_ISSUER_NAME);
+  safeRemove(KEY_BUDGET_ISSUER_FIELDS);
 }
 
 function applyAppIcon(dataUrl) {
