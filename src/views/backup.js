@@ -12,7 +12,8 @@ import {
   setAppIconDataUrl,
   setBudgetIssuerFields,
   setBudgetIssuerName,
-  setBudgetPdfIconDataUrl
+  setBudgetPdfIconDataUrl,
+  setDarkMode
 } from "../theme.js";
 import { isDevEnv, setDevEnv } from "../env.js";
 import { clearAllNotifications } from "../notifications.js";
@@ -463,6 +464,35 @@ export function renderBackup(container) {
   });
   syncDevUi();
 
+  // ----- Modo Escuro -----
+  const darkToggleBtn = el("button", {
+    type: "button",
+    class: "relative inline-flex h-6 w-11 items-center rounded-full transition-colors",
+    title: "Modo Escuro",
+    "aria-label": "Modo Escuro"
+  });
+  const darkKnob = el("span", { class: "inline-block h-5 w-5 transform rounded-full bg-white transition-transform" });
+  darkToggleBtn.appendChild(darkKnob);
+
+  const darkStatus = el("div", { class: "text-xs font-semibold uppercase tracking-wider text-slate-500" }, "Desativado");
+
+  function syncDarkUi() {
+    const on = getTheme().darkMode;
+    darkToggleBtn.classList.toggle("bg-emerald-600", on);
+    darkToggleBtn.classList.toggle("bg-slate-200", !on);
+    darkKnob.classList.toggle("translate-x-5", on);
+    darkKnob.classList.toggle("translate-x-1", !on);
+    darkStatus.textContent = on ? "Ativado" : "Desativado";
+  }
+
+  darkToggleBtn.addEventListener("click", () => {
+    const on = getTheme().darkMode;
+    setDarkMode(!on);
+    applyTheme();
+    syncDarkUi();
+  });
+  syncDarkUi();
+
   container.appendChild(
     el("div", { class: "space-y-4" }, [
       pageHeader({
@@ -531,9 +561,17 @@ export function renderBackup(container) {
             budgetIconInput,
             el("div", { class: "flex flex-col gap-2 sm:flex-row" }, [clearBudgetBtn])
           ])
+        ]),
+        el("div", { class: "mt-4 border-t border-slate-200 pt-4" }, [
+          el("div", { class: "flex items-start justify-between gap-3" }, [
+            el("div", {}, [
+              el("div", { class: "text-sm font-semibold text-slate-900" }, "Modo Escuro"),
+              el("div", { class: "mt-1 text-sm text-slate-500" }, "Alterna entre tema claro e escuro.")
+            ]),
+            el("div", { class: "shrink-0 text-right" }, [darkStatus, el("div", { class: "mt-2 flex justify-end" }, [darkToggleBtn])])
+          ])
         ])
-      ])
-      ,
+      ]),
       card([
         el("div", { class: "text-sm font-semibold text-slate-900" }, "Informações de orçamento"),
         el(

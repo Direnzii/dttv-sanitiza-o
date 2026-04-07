@@ -4,6 +4,7 @@ const KEY_APP_ICON = "dttv_theme_app_icon_v1";
 const KEY_BUDGET_PDF_ICON = "dttv_theme_budget_icon_v1";
 const KEY_BUDGET_ISSUER_NAME = "dttv_theme_budget_issuer_name_v1";
 const KEY_BUDGET_ISSUER_FIELDS = "dttv_theme_budget_issuer_fields_v1";
+const KEY_DARK_MODE = "dttv_theme_dark_mode_v1";
 
 function safeGet(key) {
   try {
@@ -62,7 +63,8 @@ export function getTheme() {
     appIconDataUrl: safeGet(KEY_APP_ICON),
     budgetPdfIconDataUrl: safeGet(KEY_BUDGET_PDF_ICON),
     budgetIssuerName: String(safeGet(KEY_BUDGET_ISSUER_NAME) || "").trim(),
-    budgetIssuerFields
+    budgetIssuerFields,
+    darkMode: safeGet(KEY_DARK_MODE) === "true"
   };
 }
 
@@ -91,11 +93,18 @@ export function setBudgetIssuerFields(fields) {
   safeSetJSON(KEY_BUDGET_ISSUER_FIELDS, normalized);
 }
 
+export function setDarkMode(enabled) {
+  const v = Boolean(enabled);
+  if (v) safeSet(KEY_DARK_MODE, "true");
+  else safeRemove(KEY_DARK_MODE);
+}
+
 export function clearTheme() {
   safeRemove(KEY_APP_ICON);
   safeRemove(KEY_BUDGET_PDF_ICON);
   safeRemove(KEY_BUDGET_ISSUER_NAME);
   safeRemove(KEY_BUDGET_ISSUER_FIELDS);
+  safeRemove(KEY_DARK_MODE);
 }
 
 function applyAppIcon(dataUrl) {
@@ -125,7 +134,8 @@ function applyAppIcon(dataUrl) {
 }
 
 export function applyTheme() {
-  const { appIconDataUrl } = getTheme();
+  const { appIconDataUrl, darkMode } = getTheme();
   applyAppIcon(appIconDataUrl);
+  document.documentElement.classList.toggle("dark", darkMode);
 }
 

@@ -157,6 +157,46 @@ function generateBudgetPdf(budget) {
   line(y);
   y += 8;
 
+  // Campos adicionais (movidos para cá, logo após informações do orçamento)
+  const additional = Array.isArray(budget.additionalFields) ? budget.additionalFields.slice(0, 3) : [];
+  const additionalPrintable = additional
+    .map((x, i) => ({
+      title: String(x?.title ?? "").trim(),
+      value: String(x?.value ?? "").trim()
+    }))
+    .filter((x) => x.title || x.value);
+
+  if (additionalPrintable.length) {
+    for (const f of additionalPrintable) {
+      ensureSpace(18);
+      const title = String(f.title || "").trim();
+      if (title) {
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(10);
+        doc.setTextColor(15, 23, 42);
+        doc.text(title, margin, y);
+        y += 5;
+      }
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      doc.setTextColor(71, 85, 105);
+      const value = String(f.value || "").trim();
+      if (value) {
+        const lines = doc.splitTextToSize(value, pageW - margin * 2);
+        doc.text(lines, margin, y);
+        y += lines.length * 4.2;
+      } else {
+        doc.text("—", margin, y);
+        y += 4.2;
+      }
+      y += 6;
+    }
+    doc.setTextColor(15, 23, 42);
+    line(y);
+    y += 8;
+  }
+
   // Items table (manual)
   doc.setFont("helvetica", "bold");
   doc.setFontSize(10);
@@ -222,58 +262,22 @@ function generateBudgetPdf(budget) {
 
   // Notes
   const notes = String(budget.notes || "").trim();
-  const additional = Array.isArray(budget.additionalFields) ? budget.additionalFields.slice(0, 3) : [];
-  const printable = additional
-    .map((x, i) => ({
-      title: String(x?.title ?? "").trim(),
-      value: String(x?.value ?? "").trim()
-    }))
-    .filter((x) => x.title || x.value);
 
-  if (notes || printable.length) {
+  if (notes) {
     y += 10;
     ensureSpace(24);
-    if (notes) {
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(11);
-      doc.setTextColor(15, 23, 42);
-      doc.text("Observações", margin, y);
-      y += 5;
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.setTextColor(15, 23, 42);
+    doc.text("Observações", margin, y);
+    y += 5;
 
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(10);
-      doc.setTextColor(71, 85, 105);
-      const noteLines = doc.splitTextToSize(notes, pageW - margin * 2);
-      doc.text(noteLines, margin, y);
-      y += noteLines.length * 4.2;
-      if (printable.length) y += 6;
-    }
-
-    for (const f of printable) {
-      ensureSpace(18);
-      const title = String(f.title || "").trim();
-      if (title) {
-        doc.setFont("helvetica", "bold");
-        doc.setFontSize(10);
-        doc.setTextColor(15, 23, 42);
-        doc.text(title, margin, y);
-        y += 5;
-      }
-
-      doc.setFont("helvetica", "normal");
-      doc.setFontSize(10);
-      doc.setTextColor(71, 85, 105);
-      const value = String(f.value || "").trim();
-      if (value) {
-        const lines = doc.splitTextToSize(value, pageW - margin * 2);
-        doc.text(lines, margin, y);
-        y += lines.length * 4.2;
-      } else {
-        doc.text("—", margin, y);
-        y += 4.2;
-      }
-      y += 6;
-    }
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.setTextColor(71, 85, 105);
+    const noteLines = doc.splitTextToSize(notes, pageW - margin * 2);
+    doc.text(noteLines, margin, y);
+    y += noteLines.length * 4.2;
 
     doc.setTextColor(15, 23, 42);
   }
@@ -282,7 +286,7 @@ function generateBudgetPdf(budget) {
   doc.setFontSize(9);
   doc.setTextColor(100, 116, 139);
   doc.text(`Gerado em ${new Date().toLocaleString("pt-BR")}`, margin, pageH - 10);
-  doc.text("DTTV — PWA Offline", pageW - margin, pageH - 10, { align: "right" });
+  doc.text("DTTV — PWA App", pageW - margin, pageH - 10, { align: "right" });
 
   const filename = `orcamento-${String(budget.code || "").toLowerCase()}-${safeFilename(budget.clientName)}-${created}.pdf`;
   doc.save(filename);

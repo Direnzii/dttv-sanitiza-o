@@ -2,6 +2,129 @@
   color-scheme: light;
 }
 
+html.dark {
+  color-scheme: dark;
+}
+
+/* Dark mode globals */
+html.dark body {
+  background-color: rgb(3, 7, 18); /* slate-950 */
+  color: rgb(248, 250, 252); /* slate-50 */
+}
+
+html.dark header {
+  border-color: rgba(71, 85, 105, 0.5); /* slate-700/50 */
+  background-color: rgba(15, 23, 42, 0.8); /* slate-900/80 */
+}
+
+html.dark nav {
+  border-color: rgb(51, 65, 85); /* slate-700 */
+  background-color: rgb(30, 41, 59); /* slate-800 */
+}
+
+html.dark .nav-btn {
+  color: rgb(226, 232, 240); /* slate-200 */
+}
+
+html.dark .nav-btn:hover {
+  background-color: rgb(30, 41, 59); /* slate-800 */
+  border-color: rgb(71, 85, 105); /* slate-600 */
+}
+
+html.dark .nav-btn[aria-current="page"] {
+  background-color: rgb(100, 116, 139); /* slate-500 */
+  color: white;
+}
+
+html.dark main {
+  color: rgb(226, 232, 240); /* slate-200 */
+}
+
+/* Converte textos escuros para claro */
+html.dark [class*="text-slate-900"],
+html.dark [class*="text-slate-700"] {
+  color: rgb(248, 250, 252) !important; /* slate-50 */
+}
+
+html.dark [class*="text-slate-500"] {
+  color: rgb(148, 163, 184) !important; /* slate-400 */
+}
+
+html.dark [class*="text-slate-600"] {
+  color: rgb(226, 232, 240) !important; /* slate-200 */
+}
+
+/* Cards e containers */
+html.dark [class*="card"],
+html.dark .rounded-2xl:not(input):not(button):not(textarea),
+html.dark .rounded-xl:not(input):not(button):not(textarea) {
+  border-color: rgb(51, 65, 85); /* slate-700 */
+  background-color: rgb(30, 41, 59); /* slate-800 */
+}
+
+html.dark input,
+html.dark textarea,
+html.dark select {
+  border-color: rgb(71, 85, 105); /* slate-600 */
+  background-color: rgb(15, 23, 42); /* slate-900 */
+  color: rgb(248, 250, 252); /* slate-50 */
+}
+
+html.dark input::placeholder,
+html.dark textarea::placeholder {
+  color: rgb(100, 116, 139); /* slate-400 */
+}
+
+html.dark button:not([class*="bg-"]):not([class*="bg-"]) {
+  border-color: rgb(71, 85, 105); /* slate-600 */
+  background-color: rgb(30, 41, 59); /* slate-800 */
+  color: rgb(226, 232, 240); /* slate-200 */
+}
+
+html.dark button:not([class*="bg-"]):hover {
+  background-color: rgb(51, 65, 85); /* slate-700 */
+}
+
+/* Backgrounds específicos */
+html.dark [class*="bg-slate-50"] {
+  background-color: rgb(30, 41, 59) !important; /* slate-800 */
+}
+
+html.dark [class*="bg-white"]:not(input):not(textarea):not(select) {
+  background-color: rgb(30, 41, 59) !important; /* slate-800 */
+}
+
+html.dark [class*="bg-slate-200"] {
+  background-color: rgb(30, 41, 59) !important; /* slate-800 */
+}
+
+/* Borders */
+html.dark [class*="border-slate-200"] {
+  border-color: rgb(51, 65, 85) !important; /* slate-700 */
+}
+
+html.dark [class*="border-slate-300"] {
+  border-color: rgb(51, 65, 85) !important; /* slate-700 */
+}
+
+/* Tables */
+html.dark table td {
+  color: rgb(248, 250, 252); /* slate-50 */
+}
+
+html.dark table th {
+  background-color: rgb(30, 41, 59); /* slate-800 */
+  color: rgb(248, 250, 252); /* slate-50 */
+}
+
+/* Focus states */
+html.dark input:focus,
+html.dark textarea:focus,
+html.dark select:focus {
+  border-color: rgb(100, 116, 139); /* slate-500 */
+  outline: none;
+}
+
 /* Evita zoom automático do Safari iOS ao focar inputs (<16px). */
 @supports (-webkit-touch-callout: none) {
   input,
